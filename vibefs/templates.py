@@ -5,8 +5,7 @@ BASE_HEAD = '<meta charset="utf-8">\n<meta name="viewport" content="width=device
 _GOOGLE_FONTS = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-    '<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;1,400'
-    '&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">'
+    '<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@100..900&family=Google+Sans+Code:wght@100..700&display=swap" rel="stylesheet">'
 )
 
 
@@ -29,8 +28,8 @@ BASE_CSS = (
     ' :root { --bg: #1e1e1e; --bg-header: #2d2d2d; --border: #404040;'
     ' --text: #d4d4d4; --text-header: #e0e0e0; --text-muted: #888888;'
     ' --link: #6ab0f3;'
-    ' --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;'
-    ' --font-mono: "JetBrains Mono", "SF Mono", "Menlo", "Monaco", "Consolas", monospace; }'
+    ' --font-sans: "Google Sans Flex", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;'
+    ' --font-mono: "Google Sans Code", "SF Mono", "Menlo", "Monaco", "Consolas", monospace; }'
     ' @media (prefers-color-scheme: light) {'
     ' :root { --bg: #ffffff; --bg-header: #f6f8fa; --border: #d0d7de;'
     ' --text: #1f2328; --text-header: #1f2328; --text-muted: #656d76;'
@@ -107,7 +106,7 @@ MARKDOWN_HTML_TEMPLATE = """<!DOCTYPE html>
 <title>{display_path}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@100..900&family=Google+Sans+Code:wght@100..700&display=swap" rel="stylesheet">
 <style>
   :root {{
     --bg: #0d1117;
@@ -119,8 +118,8 @@ MARKDOWN_HTML_TEMPLATE = """<!DOCTYPE html>
     --link: #58a6ff;
     --code-bg: #1f2428;
     --code-color: #f0883e;
-    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+    --font-sans: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'Google Sans Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
   }}
   @media (prefers-color-scheme: light) {{
     :root {{
@@ -139,6 +138,8 @@ MARKDOWN_HTML_TEMPLATE = """<!DOCTYPE html>
   html {{ overflow-x: hidden; }}
   body {{
     font-family: var(--font-sans);
+    font-weight: 400;
+    font-synthesis: none;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
@@ -188,8 +189,6 @@ MARKDOWN_HTML_TEMPLATE = """<!DOCTYPE html>
     width: 100%;
     overflow-x: auto;
     margin-bottom: 16px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
   }}
   .markdown-body table {{
     border-collapse: collapse;
@@ -224,7 +223,6 @@ MARKDOWN_HTML_TEMPLATE = """<!DOCTYPE html>
     margin-bottom: 16px;
     border-radius: 6px;
     overflow: hidden;
-    border: 1px solid var(--border);
   }}
   .markdown-body pre code {{
     background: none;
@@ -295,7 +293,7 @@ CODE_HTML_TEMPLATE = """<!DOCTYPE html>
 <title>{display_path}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@100..900&family=Google+Sans+Code:wght@100..700&display=swap" rel="stylesheet">
 <style>
   :root {{
     --bg: #1e1e1e;
@@ -304,8 +302,8 @@ CODE_HTML_TEMPLATE = """<!DOCTYPE html>
     --text: #d4d4d4;
     --text-header: #e0e0e0;
     --text-muted: #888888;
-    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+    --font-sans: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'Google Sans Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
   }}
   @media (prefers-color-scheme: light) {{
     :root {{
@@ -393,7 +391,7 @@ GIT_HTML_TEMPLATE = """<!DOCTYPE html>
 <title>{repo_path} · {short_hash}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@100..900&family=Google+Sans+Code:wght@100..700&display=swap" rel="stylesheet">
 <style>
   :root {{
     --bg: #1e1e1e;
@@ -406,8 +404,8 @@ GIT_HTML_TEMPLATE = """<!DOCTYPE html>
     --text-muted: #888888;
     --text-body: #b0b0b0;
     --link: #6ab0f3;
-    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+    --font-sans: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'Google Sans Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
   }}
   @media (prefers-color-scheme: light) {{
     :root {{
