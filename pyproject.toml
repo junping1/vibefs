@@ -1,12 +1,12 @@
 [project]
 name = "vibefs"
-version = "0.5.0"
+version = "0.7.0"
 description = "A simple, secure file preview service with time-limited URLs"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
-    { name = "reorx", email = "novoreorx@gmail.com" },
+    { name = "junping1" },
 ]
 keywords = ["file-server", "preview", "cli", "agent"]
 classifiers = [
@@ -22,11 +22,13 @@ dependencies = [
     "bottle>=0.13.4",
     "click>=8.3.1",
     "pygments>=2.19.2",
+    "markdown-it-py[linkify]>=4.0.0",
+    "mdit-py-plugins>=0.5.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/reorx/vibefs"
-Repository = "https://github.com/reorx/vibefs"
+Homepage = "https://github.com/junping1/vibefs"
+Repository = "https://github.com/junping1/vibefs"
 
 [project.scripts]
 vibefs = "vibefs:cli"
