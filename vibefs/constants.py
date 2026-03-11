@@ -3,7 +3,7 @@ import os
 DEFAULT_PORT = 17173
 DEFAULT_HOST = '0.0.0.0'
 DEFAULT_TTL = 3600  # 1 hour
-TOKEN_LENGTH = 4  # bytes, produces 8 hex chars
+TOKEN_LENGTH = 2  # bytes, produces 4 hex chars
 CLEANUP_INTERVAL = 60  # seconds between auto-stop checks
 
 STATE_DIR = os.path.expanduser('~/.vibefs')

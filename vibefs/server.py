@@ -48,8 +48,9 @@ def verify_submit():
         return bottle.template(EXPIRED_VERIFY_TEMPLATE, next=next_url, error='Incorrect password')
 
 
+@app.route('/f/<token>')
 @app.route('/f/<token>/<filename>')
-def serve_file(token, filename):
+def serve_file(token, filename=None):
     row, status = lookup_authorization(token)
 
     if status == 'not_found':

@@ -93,9 +93,9 @@ def allow(path, ttl, port, host, head, tail):
     token, filename, is_new = add_authorization(path, ttl)
     base_url = load_config().get('base_url')
     if base_url:
-        url = f'{base_url.rstrip("/")}/f/{token}/{filename}'
+        url = f'{base_url.rstrip("/")}/f/{token}'
     else:
-        url = f'http://{host}:{port}/f/{token}/{filename}'
+        url = f'http://{host}:{port}/f/{token}'
     params = []
     if head is not None:
         params.append(f'head={head}')
