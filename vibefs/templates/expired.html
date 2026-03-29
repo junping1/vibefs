@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}File Expired{% endblock %}
+
+{% block extra_css %}
+  body { display: flex; align-items: center; justify-content: center; }
+  .container { max-width: 400px; width: 100%; padding: 32px 16px; text-align: center; }
+  h1 { font-size: 1.3em; color: var(--text-header); margin-bottom: 8px; }
+  p { color: var(--text-muted); font-size: 14px; }
+  .unlock { display: inline-block; margin-top: 24px; background: #4a9eff; color: #fff;
+    text-decoration: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: 500; }
+  .unlock:hover { background: #3a8eef; }
+{% endblock %}
+
+{% block body %}
+<div class="container">
+  <h1>This file is no longer available</h1>
+  <p><strong>{{ filename }}</strong> has expired and can no longer be accessed.</p>
+  {% if verify_url %}
+  <a class="unlock" href="{{ verify_url }}">Unlock with password</a>
+  {% endif %}
+</div>
+{% endblock %}

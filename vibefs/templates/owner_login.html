@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Owner Login — vibefs{% endblock %}
+
+{% block extra_css %}
+  body { display: flex; align-items: center; justify-content: center; }
+  .container { max-width: 400px; width: 100%; padding: 32px 16px; text-align: center; }
+  h1 { font-size: 1.3em; color: var(--text-header); margin-bottom: 8px; }
+  p { color: var(--text-muted); font-size: 14px; }
+  .hint { color: var(--text-muted); font-size: 13px; margin-bottom: 16px; }
+  form { display: flex; flex-direction: column; gap: 12px; }
+  input[type="password"] { background: var(--bg-header); border: 1px solid var(--border); color: var(--text-header);
+    padding: 10px 14px; border-radius: 6px; font-size: 16px; outline: none; width: 100%;
+    -webkit-appearance: none; }
+  input[type="password"]:focus { border-color: var(--link); }
+  button { background: #4a9eff; color: #fff; border: none; padding: 10px 14px;
+    border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 500; }
+  button:hover { background: #3a8eef; }
+  .error { color: #f44; font-size: 13px; }
+{% endblock %}
+
+{% block body %}
+<div class="container">
+  <h1>Owner Login</h1>
+  <p class="hint">Enter password for full access</p>
+  <form method="POST" action="/owner/login">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <input type="password" name="password" placeholder="Password" autofocus>
+    <button type="submit">Login</button>
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}
