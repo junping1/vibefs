@@ -4,6 +4,13 @@ DEFAULT_PORT = 17173
 DEFAULT_HOST = '0.0.0.0'
 DEFAULT_TTL = 3600  # 1 hour
 TOKEN_LENGTH = 4  # bytes, produces 8 hex chars
+TIME_FORMAT = '%Y-%m-%d %H:%M'
+
+# Authorization lookup statuses
+STATUS_VALID = 'valid'
+STATUS_EXPIRED = 'expired'
+STATUS_NOT_FOUND = 'not_found'
+STATUS_ACTIVE = 'active'
 DIR_TOKEN_LENGTH = 6  # bytes, produces 12 hex chars
 OWNER_KEY_LENGTH = 16  # bytes, produces 32 hex chars
 DIR_DEFAULT_TTL = 10800  # 3 hours
