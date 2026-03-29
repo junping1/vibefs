@@ -1,22 +1,117 @@
+import json as json_mod
+import mimetypes
 import os
 import time
+import urllib.parse
+from collections import defaultdict
+import threading
 
 import bottle
 
 from .config import load_config
-from .constants import DEFAULT_TTL
-from .db import get_db, lookup_authorization, lookup_git_authorization, get_git_commit_info
+from .constants import DEFAULT_TTL, DIR_DEFAULT_TTL
+from .db import (
+    get_db, lookup_authorization, lookup_dir_authorization,
+    lookup_git_authorization, get_git_commit_info, list_all_authorizations,
+)
 from .renderers import get_renderer
-from .templates import GIT_HTML_TEMPLATE, EXPIRED_TEMPLATE, EXPIRED_VERIFY_TEMPLATE, _dual_pygments_css
-from .utils import _display_path, _html_escape
+from .templates import (
+    GIT_HTML_TEMPLATE, EXPIRED_TEMPLATE, EXPIRED_VERIFY_TEMPLATE,
+    DIR_BROWSER_TEMPLATE, OWNER_LOGIN_TEMPLATE, DASHBOARD_TEMPLATE,
+    _dual_pygments_css,
+)
+from .utils import (
+    _display_path, _html_escape, is_safe_subpath,
+    walk_directory, get_file_type,
+)
 
 app = bottle.Bottle()
 
+
+# --- Rate limiting ---
+
+_rate_limits = defaultdict(list)
+_rate_lock = threading.Lock()
+RATE_LIMIT = 60
+RATE_WINDOW = 60
+
+
+@app.hook('before_request')
+def rate_limit():
+    ip = bottle.request.environ.get('HTTP_X_FORWARDED_FOR', bottle.request.remote_addr)
+    if ip:
+        ip = ip.split(',')[0].strip()
+    now = time.time()
+    with _rate_lock:
+        _rate_limits[ip] = [t for t in _rate_limits[ip] if now - t < RATE_WINDOW]
+        if len(_rate_limits[ip]) >= RATE_LIMIT:
+            bottle.abort(429, 'Rate limit exceeded')
+        _rate_limits[ip].append(now)
+
+
+# --- Anti-crawler headers ---
+
+@app.hook('after_request')
+def add_security_headers():
+    bottle.response.headers['X-Robots-Tag'] = 'noindex, nofollow, noarchive, nosnippet'
+    bottle.response.headers['Referrer-Policy'] = 'no-referrer'
+    bottle.response.headers['X-Content-Type-Options'] = 'nosniff'
+
+
+@app.route('/robots.txt')
+def robots():
+    bottle.response.content_type = 'text/plain'
+    return 'User-agent: *\nDisallow: /\n'
+
+
+# --- Auth helpers ---
 
 def _check_expired_auth(password):
     """Check if user has a valid auth cookie. Returns True if verified."""
     return bottle.request.get_cookie('vibefs_auth', secret=password) == 'verified'
 
+
+def _check_owner_auth():
+    """Check if the request has a valid owner cookie (30-day)."""
+    cfg = load_config()
+    password = cfg.get('password')
+    if not password:
+        return False
+    return bottle.request.get_cookie('vibefs_owner', secret=password) == 'owner'
+
+
+def _handle_expired(row, name_field, token, table='authorizations'):
+    """Handle expired authorization. Returns response HTML or None if owner-authed."""
+    cfg = load_config()
+    password = cfg.get('password')
+
+    # Owner cookie bypasses expiry
+    if password and _check_owner_auth():
+        ttl = cfg.get('file_ttl', DEFAULT_TTL)
+        if table == 'dir_authorizations':
+            ttl = cfg.get('dir_default_ttl', DIR_DEFAULT_TTL)
+        db = get_db()
+        db.execute(f'UPDATE {table} SET expires_at = ? WHERE token = ?', (time.time() + ttl, token))
+        db.commit()
+        db.close()
+        return None  # Proceed to serve
+
+    # Regular auth cookie
+    if password and _check_expired_auth(password):
+        ttl = cfg.get('file_ttl', DEFAULT_TTL)
+        if table == 'dir_authorizations':
+            ttl = cfg.get('dir_default_ttl', DIR_DEFAULT_TTL)
+        db = get_db()
+        db.execute(f'UPDATE {table} SET expires_at = ? WHERE token = ?', (time.time() + ttl, token))
+        db.commit()
+        db.close()
+        return None  # Proceed to serve
+
+    verify_url = f'/verify?next={bottle.request.path}' if password else ''
+    return bottle.template(EXPIRED_TEMPLATE, filename=row[name_field], verify_url=verify_url)
+
+
+# --- Verify (existing) ---
 
 @app.route('/verify')
 def verify_page():
@@ -48,6 +143,67 @@ def verify_submit():
         return bottle.template(EXPIRED_VERIFY_TEMPLATE, next=next_url, error='Incorrect password')
 
 
+# --- Owner auth ---
+
+@app.route('/owner/login')
+def owner_login():
+    next_url = bottle.request.query.get('next', '/dashboard')
+    cfg = load_config()
+    password = cfg.get('password')
+    if not password:
+        bottle.abort(403, 'No password configured')
+    if _check_owner_auth():
+        bottle.redirect(next_url)
+    return bottle.template(OWNER_LOGIN_TEMPLATE, next=next_url, error='')
+
+
+@app.post('/owner/login')
+def owner_login_submit():
+    next_url = bottle.request.forms.get('next', '/dashboard')
+    if not next_url.startswith('/'):
+        next_url = '/dashboard'
+    cfg = load_config()
+    password = cfg.get('password')
+    if not password:
+        bottle.abort(403, 'No password configured')
+
+    submitted = bottle.request.forms.get('password', '')
+    if submitted == password:
+        bottle.response.set_cookie('vibefs_owner', 'owner', secret=password, path='/', max_age=30 * 86400)
+        # Also set the regular auth cookie for convenience
+        bottle.response.set_cookie('vibefs_auth', 'verified', secret=password, path='/', max_age=30 * 86400)
+        bottle.redirect(next_url)
+    else:
+        return bottle.template(OWNER_LOGIN_TEMPLATE, next=next_url, error='Incorrect password')
+
+
+# --- Dashboard ---
+
+@app.route('/dashboard')
+def dashboard():
+    if not _check_owner_auth():
+        bottle.redirect('/owner/login?next=/dashboard')
+
+    shares = list_all_authorizations()
+    for s in shares:
+        s['display_path'] = _display_path(s['path'])
+        s['created_str'] = time.strftime('%Y-%m-%d %H:%M', time.localtime(s['created_at']))
+        s['expires_str'] = time.strftime('%Y-%m-%d %H:%M', time.localtime(s['expires_at']))
+        prefix = {'file': '/f/', 'dir': '/d/', 'git': '/git/'}[s['type']]
+        cfg = load_config()
+        base_url = cfg.get('base_url', '')
+        s['url'] = f'{base_url.rstrip("/")}{prefix}{s["token"]}' if base_url else f'{prefix}{s["token"]}'
+
+    active_count = sum(1 for s in shares if s['status'] == 'active')
+    bottle.response.content_type = 'text/html; charset=utf-8'
+    return bottle.template(DASHBOARD_TEMPLATE.format(
+        share_count=len(shares),
+        active_count=active_count,
+    ), shares=shares)
+
+
+# --- File serving (existing) ---
+
 @app.route('/f/<token>')
 @app.route('/f/<token>/<filename>')
 def serve_file(token, filename=None):
@@ -57,17 +213,9 @@ def serve_file(token, filename=None):
         bottle.abort(404, 'Not found')
 
     if status == 'expired':
-        cfg = load_config()
-        password = cfg.get('password')
-        if password and _check_expired_auth(password):
-            ttl = cfg.get('file_ttl', DEFAULT_TTL)
-            db = get_db()
-            db.execute('UPDATE authorizations SET expires_at = ? WHERE token = ?', (time.time() + ttl, token))
-            db.commit()
-            db.close()
-        else:
-            verify_url = f'/verify?next={bottle.request.path}' if password else ''
-            return bottle.template(EXPIRED_TEMPLATE, filename=row['filename'], verify_url=verify_url)
+        result = _handle_expired(row, 'filename', token, 'authorizations')
+        if result is not None:
+            return result
 
     filepath = row['filepath']
     if not os.path.isfile(filepath):
@@ -82,6 +230,8 @@ def serve_file(token, filename=None):
     return renderer.render(filepath, head=head, tail=tail)
 
 
+# --- Git serving (existing) ---
+
 @app.route('/git/<token>')
 def serve_git(token):
     row, status = lookup_git_authorization(token)
@@ -90,17 +240,9 @@ def serve_git(token):
         bottle.abort(404, 'Not found')
 
     if status == 'expired':
-        cfg = load_config()
-        password = cfg.get('password')
-        if password and _check_expired_auth(password):
-            ttl = cfg.get('file_ttl', DEFAULT_TTL)
-            db = get_db()
-            db.execute('UPDATE git_authorizations SET expires_at = ? WHERE token = ?', (time.time() + ttl, token))
-            db.commit()
-            db.close()
-        else:
-            verify_url = f'/verify?next={bottle.request.path}' if password else ''
-            return bottle.template(EXPIRED_TEMPLATE, filename='git commit', verify_url=verify_url)
+        result = _handle_expired(row, 'commit_hash', token, 'git_authorizations')
+        if result is not None:
+            return result
 
     repo_path = row['repo_path']
     commit_hash = row['commit_hash']
@@ -146,3 +288,187 @@ def serve_git(token):
         file_count=len(info['files']),
         pygments_css=pygments_css,
     )
+
+
+# --- Directory browsing ---
+
+def _get_dir_auth(token):
+    """Validate dir token, handle expired/not_found. Returns row or aborts."""
+    row, status = lookup_dir_authorization(token)
+    if status == 'not_found':
+        bottle.abort(404, 'Not found')
+    if status == 'expired':
+        result = _handle_expired(row, 'dirname', token, 'dir_authorizations')
+        if result is not None:
+            bottle.response.content_type = 'text/html; charset=utf-8'
+            return None, result
+    return row, None
+
+
+def _validate_dir_path(dirpath, rel_path, excludes):
+    """Validate a relative path within a directory share. Returns abs_path or aborts."""
+    # Reject obvious traversal attempts
+    if '..' in rel_path.split('/') or rel_path.startswith('/'):
+        bottle.abort(403, 'Invalid path')
+
+    abs_path = os.path.join(dirpath, rel_path)
+    if not is_safe_subpath(dirpath, abs_path):
+        bottle.abort(403, 'Path traversal denied')
+
+    if not os.path.exists(abs_path):
+        bottle.abort(404, 'File not found')
+
+    # Check excludes
+    from .utils import _is_excluded
+    parts = rel_path.split('/')
+    for i, part in enumerate(parts):
+        is_dir = i < len(parts) - 1 or os.path.isdir(abs_path)
+        if _is_excluded(part, is_dir, excludes):
+            bottle.abort(403, 'Access denied')
+
+    return abs_path
+
+
+@app.route('/d/<token>')
+@app.route('/d/<token>/')
+def serve_dir(token):
+    row, expired_resp = _get_dir_auth(token)
+    if expired_resp is not None:
+        return expired_resp
+
+    dirpath = row['dirpath']
+    if not os.path.isdir(dirpath):
+        bottle.abort(404, 'Directory no longer exists on disk')
+
+    excludes = json_mod.loads(row['excludes'])
+
+    try:
+        tree = walk_directory(dirpath, excludes)
+    except ValueError as e:
+        bottle.abort(413, str(e))
+
+    cfg = load_config()
+    base_path = cfg.get('base_url', '').rstrip('/')
+
+    bottle.response.content_type = 'text/html; charset=utf-8'
+    return DIR_BROWSER_TEMPLATE.format(
+        dirname=_html_escape(row['dirname']),
+        token=token,
+        tree_json=json_mod.dumps(tree),
+        expires_at=f'{row["expires_at"]:.0f}',
+        initial_file='',
+        base_path=base_path,
+    )
+
+
+@app.route('/d/<token>/<filepath:path>')
+def serve_dir_file(token, filepath):
+    # If it's an API path, skip (handled by specific routes below)
+    if filepath.startswith('api/'):
+        bottle.abort(404, 'Not found')
+
+    row, expired_resp = _get_dir_auth(token)
+    if expired_resp is not None:
+        return expired_resp
+
+    dirpath = row['dirpath']
+    if not os.path.isdir(dirpath):
+        bottle.abort(404, 'Directory no longer exists on disk')
+
+    excludes = json_mod.loads(row['excludes'])
+
+    try:
+        tree = walk_directory(dirpath, excludes)
+    except ValueError as e:
+        bottle.abort(413, str(e))
+
+    cfg = load_config()
+    base_path = cfg.get('base_url', '').rstrip('/')
+
+    bottle.response.content_type = 'text/html; charset=utf-8'
+    return DIR_BROWSER_TEMPLATE.format(
+        dirname=_html_escape(row['dirname']),
+        token=token,
+        tree_json=json_mod.dumps(tree),
+        expires_at=f'{row["expires_at"]:.0f}',
+        initial_file=_html_escape(filepath),
+        base_path=base_path,
+    )
+
+
+@app.route('/d/<token>/api/tree')
+def dir_api_tree(token):
+    row, expired_resp = _get_dir_auth(token)
+    if expired_resp is not None:
+        bottle.abort(403, 'Expired')
+
+    dirpath = row['dirpath']
+    excludes = json_mod.loads(row['excludes'])
+
+    try:
+        tree = walk_directory(dirpath, excludes)
+    except ValueError as e:
+        bottle.abort(413, str(e))
+
+    bottle.response.content_type = 'application/json'
+    return json_mod.dumps({'tree': tree, 'dirname': row['dirname'], 'token': token})
+
+
+@app.route('/d/<token>/api/file')
+def dir_api_file(token):
+    row, expired_resp = _get_dir_auth(token)
+    if expired_resp is not None:
+        bottle.abort(403, 'Expired')
+
+    rel_path = bottle.request.query.get('path', '')
+    if not rel_path:
+        bottle.abort(400, 'Missing path parameter')
+
+    dirpath = row['dirpath']
+    excludes = json_mod.loads(row['excludes'])
+    abs_path = _validate_dir_path(dirpath, rel_path, excludes)
+
+    file_type = get_file_type(abs_path)
+    cfg = load_config()
+    base_url = cfg.get('base_url', '').rstrip('/')
+
+    if file_type == 'image':
+        raw_url = f'{base_url}/d/{token}/raw?path={urllib.parse.quote(rel_path)}'
+        bottle.response.content_type = 'application/json'
+        return json_mod.dumps({'type': 'image', 'url': raw_url})
+
+    if file_type in ('code', 'markdown'):
+        renderer = get_renderer(abs_path)
+        html_content = renderer.render(abs_path)
+        bottle.response.content_type = 'application/json'
+        return json_mod.dumps({'type': 'html', 'content': html_content})
+
+    # Binary / unknown
+    raw_url = f'{base_url}/d/{token}/raw?path={urllib.parse.quote(rel_path)}'
+    filename = os.path.basename(abs_path)
+    try:
+        size = os.path.getsize(abs_path)
+    except OSError:
+        size = 0
+    bottle.response.content_type = 'application/json'
+    return json_mod.dumps({'type': 'binary', 'filename': filename, 'size': size, 'url': raw_url})
+
+
+@app.route('/d/<token>/raw')
+def dir_raw_file(token):
+    row, expired_resp = _get_dir_auth(token)
+    if expired_resp is not None:
+        bottle.abort(403, 'Expired')
+
+    rel_path = bottle.request.query.get('path', '')
+    if not rel_path:
+        bottle.abort(400, 'Missing path parameter')
+
+    dirpath = row['dirpath']
+    excludes = json_mod.loads(row['excludes'])
+    abs_path = _validate_dir_path(dirpath, rel_path, excludes)
+
+    # Serve the file directly
+    directory = os.path.dirname(abs_path)
+    filename = os.path.basename(abs_path)
+    return bottle.static_file(filename, root=directory)

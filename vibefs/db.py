@@ -1,10 +1,11 @@
+import json
 import os
 import secrets
 import sqlite3
 import subprocess
 import time
 
-from .constants import DB_PATH, TOKEN_LENGTH
+from .constants import DB_PATH, TOKEN_LENGTH, DIR_TOKEN_LENGTH
 
 
 def get_db_path():
@@ -28,6 +29,16 @@ def get_db():
             token TEXT PRIMARY KEY,
             repo_path TEXT NOT NULL,
             commit_hash TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS dir_authorizations (
+            token TEXT PRIMARY KEY,
+            dirpath TEXT NOT NULL,
+            dirname TEXT NOT NULL,
+            excludes TEXT NOT NULL,
             created_at REAL NOT NULL,
             expires_at REAL NOT NULL
         )
@@ -108,7 +119,7 @@ def lookup_authorization(token):
 
 
 def has_active_authorizations():
-    """Check if there are any non-expired authorizations (files or git)."""
+    """Check if there are any non-expired authorizations (files, git, or dirs)."""
     db = get_db()
     now = time.time()
     file_cnt = db.execute(
@@ -119,8 +130,12 @@ def has_active_authorizations():
         'SELECT COUNT(*) as cnt FROM git_authorizations WHERE expires_at > ?',
         (now,),
     ).fetchone()['cnt']
+    dir_cnt = db.execute(
+        'SELECT COUNT(*) as cnt FROM dir_authorizations WHERE expires_at > ?',
+        (now,),
+    ).fetchone()['cnt']
     db.close()
-    return (file_cnt + git_cnt) > 0
+    return (file_cnt + git_cnt + dir_cnt) > 0
 
 
 def add_git_authorization(repo_path, commit_hash, ttl):
@@ -232,3 +247,88 @@ def get_git_commit_info(repo_path, commit_hash):
 
     info['files'] = files
     return info
+
+
+def add_dir_authorization(dirpath, ttl, excludes):
+    """Add a directory authorization record and return (token, dirname, is_new)."""
+    abs_path = os.path.abspath(dirpath)
+    if not os.path.isdir(abs_path):
+        raise FileNotFoundError(f'Directory not found: {abs_path}')
+
+    dirname = os.path.basename(abs_path)
+    now = time.time()
+    excludes_json = json.dumps(excludes)
+
+    db = get_db()
+    row = db.execute(
+        'SELECT token FROM dir_authorizations WHERE dirpath = ? AND expires_at > ?',
+        (abs_path, now),
+    ).fetchone()
+
+    if row:
+        token = row['token']
+        db.execute(
+            'UPDATE dir_authorizations SET expires_at = ?, excludes = ? WHERE token = ?',
+            (now + ttl, excludes_json, token),
+        )
+        db.commit()
+        db.close()
+        return token, dirname, False
+    else:
+        token = secrets.token_hex(DIR_TOKEN_LENGTH)
+        db.execute(
+            'INSERT INTO dir_authorizations (token, dirpath, dirname, excludes, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
+            (token, abs_path, dirname, excludes_json, now, now + ttl),
+        )
+        db.commit()
+        db.close()
+        return token, dirname, True
+
+
+def lookup_dir_authorization(token):
+    """Look up a directory token. Returns (row, status)."""
+    db = get_db()
+    row = db.execute(
+        'SELECT token, dirpath, dirname, excludes, created_at, expires_at FROM dir_authorizations WHERE token = ?',
+        (token,),
+    ).fetchone()
+    db.close()
+
+    if row is None:
+        return None, 'not_found'
+    if time.time() > row['expires_at']:
+        return row, 'expired'
+    return row, 'valid'
+
+
+def list_dir_authorizations():
+    """Return all directory authorization records."""
+    db = get_db()
+    rows = db.execute(
+        'SELECT token, dirpath, dirname, excludes, created_at, expires_at FROM dir_authorizations ORDER BY created_at DESC'
+    ).fetchall()
+    db.close()
+    return rows
+
+
+def list_all_authorizations():
+    """Return all authorizations (files, git, dirs) for the dashboard."""
+    db = get_db()
+    now = time.time()
+    results = []
+
+    for row in db.execute('SELECT token, filepath, filename, created_at, expires_at FROM authorizations ORDER BY created_at DESC').fetchall():
+        results.append({'type': 'file', 'token': row['token'], 'path': row['filepath'], 'name': row['filename'],
+                        'created_at': row['created_at'], 'expires_at': row['expires_at'], 'status': 'active' if row['expires_at'] > now else 'expired'})
+
+    for row in db.execute('SELECT token, repo_path, commit_hash, created_at, expires_at FROM git_authorizations ORDER BY created_at DESC').fetchall():
+        results.append({'type': 'git', 'token': row['token'], 'path': row['repo_path'], 'name': row['commit_hash'][:12],
+                        'created_at': row['created_at'], 'expires_at': row['expires_at'], 'status': 'active' if row['expires_at'] > now else 'expired'})
+
+    for row in db.execute('SELECT token, dirpath, dirname, created_at, expires_at FROM dir_authorizations ORDER BY created_at DESC').fetchall():
+        results.append({'type': 'dir', 'token': row['token'], 'path': row['dirpath'], 'name': row['dirname'],
+                        'created_at': row['created_at'], 'expires_at': row['expires_at'], 'status': 'active' if row['expires_at'] > now else 'expired'})
+
+    results.sort(key=lambda x: x['created_at'], reverse=True)
+    db.close()
+    return results

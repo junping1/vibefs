@@ -5,11 +5,11 @@ import time
 
 import click
 
-from .constants import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TTL, ensure_state_dir
+from .constants import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TTL, DIR_DEFAULT_TTL, DEFAULT_EXCLUDES, ensure_state_dir
 from .config import load_config, save_config
 from .db import (
     add_authorization, remove_authorization, list_authorizations,
-    add_git_authorization, get_db,
+    add_git_authorization, add_dir_authorization, list_dir_authorizations, get_db,
 )
 from .daemon import (
     read_pid, write_pid, remove_pid,
@@ -18,7 +18,7 @@ from .daemon import (
 from .server import app
 from .utils import _display_path
 
-VALID_CONFIG_KEYS = ['base_url', 'file_ttl', 'auto_stop', 'password', 'pygments.style', 'pygments.linenos']
+VALID_CONFIG_KEYS = ['base_url', 'file_ttl', 'dir_default_ttl', 'auto_stop', 'password', 'default_excludes', 'pygments.style', 'pygments.linenos']
 
 
 def _get_nested(cfg, key):
@@ -82,27 +82,46 @@ def serve(port, host, foreground):
 @click.option('--ttl', default=None, type=int, help=f'Time-to-live in seconds (default: config file_ttl or {DEFAULT_TTL})')
 @click.option('--port', default=DEFAULT_PORT, show_default=True, help='Port for URL generation')
 @click.option('--host', default='localhost', show_default=True, help='Host for URL generation')
-@click.option('--head', default=None, type=int, help='Only show first N lines')
-@click.option('--tail', default=None, type=int, help='Only show last N lines')
-def allow(path, ttl, port, host, head, tail):
-    """Authorize a file for access, auto-start daemon if needed, and print its URL."""
+@click.option('--head', default=None, type=int, help='Only show first N lines (files only)')
+@click.option('--tail', default=None, type=int, help='Only show last N lines (files only)')
+@click.option('--exclude', multiple=True, help='Additional exclude patterns for directory shares')
+def allow(path, ttl, port, host, head, tail, exclude):
+    """Authorize a file or directory for access, auto-start daemon if needed, and print its URL."""
     ensure_state_dir()
-    if ttl is None:
-        cfg = load_config()
-        ttl = cfg.get('file_ttl', DEFAULT_TTL)
-    token, filename, is_new = add_authorization(path, ttl)
-    base_url = load_config().get('base_url')
-    if base_url:
-        url = f'{base_url.rstrip("/")}/f/{token}'
+    abs_path = os.path.abspath(path)
+    cfg = load_config()
+    base_url = cfg.get('base_url')
+
+    if os.path.isdir(abs_path):
+        if head is not None or tail is not None:
+            click.echo('Warning: --head and --tail are ignored for directory shares', err=True)
+        if ttl is None:
+            ttl = cfg.get('dir_default_ttl', DIR_DEFAULT_TTL)
+        excludes = list(cfg.get('default_excludes', DEFAULT_EXCLUDES)) + list(exclude)
+        token, dirname, is_new = add_dir_authorization(abs_path, ttl, excludes)
+        if base_url:
+            url = f'{base_url.rstrip("/")}/d/{token}'
+        else:
+            url = f'http://{host}:{port}/d/{token}'
+    elif os.path.isfile(abs_path):
+        if ttl is None:
+            ttl = cfg.get('file_ttl', DEFAULT_TTL)
+        token, filename, is_new = add_authorization(path, ttl)
+        if base_url:
+            url = f'{base_url.rstrip("/")}/f/{token}'
+        else:
+            url = f'http://{host}:{port}/f/{token}'
+        params = []
+        if head is not None:
+            params.append(f'head={head}')
+        if tail is not None:
+            params.append(f'tail={tail}')
+        if params:
+            url += '?' + '&'.join(params)
     else:
-        url = f'http://{host}:{port}/f/{token}'
-    params = []
-    if head is not None:
-        params.append(f'head={head}')
-    if tail is not None:
-        params.append(f'tail={tail}')
-    if params:
-        url += '?' + '&'.join(params)
+        click.echo(f'Path not found: {abs_path}', err=True)
+        sys.exit(1)
+
     click.echo(url)
     if not is_new:
         click.echo('(existing authorization extended)', err=True)
@@ -179,6 +198,15 @@ def list_cmd():
             status = f'{int(remaining)}s remaining' if remaining > 0 else 'expired'
             short_hash = row['commit_hash'][:12]
             click.echo(f'  {row["token"]}  {_display_path(row["repo_path"])} {short_hash}  [{status}]')
+
+    dir_rows = list_dir_authorizations()
+    if dir_rows:
+        has_any = True
+        click.echo('Directories:')
+        for row in dir_rows:
+            remaining = row['expires_at'] - now
+            status = f'{int(remaining)}s remaining' if remaining > 0 else 'expired'
+            click.echo(f'  {row["token"]}  {_display_path(row["dirpath"])}  [{status}]')
 
     if not has_any:
         click.echo('No active authorizations.')
