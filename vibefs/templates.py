@@ -548,3 +548,612 @@ GIT_HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
 </body>
 </html>"""
+
+
+DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<title>{dirname} — vibefs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@100..900&family=Google+Sans+Code:wght@100..700&display=swap" rel="stylesheet">
+<style>
+  :root {{
+    --bg: #1e1e1e;
+    --bg-sidebar: #252526;
+    --bg-header: #2d2d2d;
+    --bg-hover: #2a2d2e;
+    --bg-active: #37373d;
+    --border: #404040;
+    --text: #d4d4d4;
+    --text-header: #e0e0e0;
+    --text-muted: #888888;
+    --text-dim: #6a6a6a;
+    --link: #6ab0f3;
+    --accent: #4a9eff;
+    --font-sans: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'Google Sans Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  }}
+  @media (prefers-color-scheme: light) {{
+    :root {{
+      --bg: #ffffff;
+      --bg-sidebar: #f3f3f3;
+      --bg-header: #f6f8fa;
+      --bg-hover: #e8e8e8;
+      --bg-active: #d6d6d6;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --text-header: #1f2328;
+      --text-muted: #656d76;
+      --text-dim: #999;
+      --link: #0969da;
+      --accent: #0969da;
+    }}
+  }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  html, body {{ height: 100%; overflow: hidden; }}
+  body {{
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+  }}
+
+  /* Header */
+  .header {{
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    min-height: 44px;
+  }}
+  .header-title {{
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-header);
+    font-family: var(--font-mono);
+  }}
+  .header-meta {{
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }}
+  .header-meta .countdown {{
+    font-family: var(--font-mono);
+  }}
+
+  /* Layout */
+  .layout {{
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }}
+
+  /* Sidebar */
+  .sidebar {{
+    width: 260px;
+    min-width: 260px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex-shrink: 0;
+  }}
+  .sidebar::-webkit-scrollbar {{ width: 6px; }}
+  .sidebar::-webkit-scrollbar-track {{ background: transparent; }}
+  .sidebar::-webkit-scrollbar-thumb {{ background: var(--border); border-radius: 3px; }}
+
+  .tree-item {{
+    display: flex;
+    align-items: center;
+    padding: 3px 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text);
+    white-space: nowrap;
+    user-select: none;
+    border-radius: 0;
+    text-decoration: none;
+  }}
+  .tree-item:hover {{ background: var(--bg-hover); }}
+  .tree-item.active {{ background: var(--bg-active); }}
+  .tree-item .icon {{
+    width: 16px;
+    flex-shrink: 0;
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-right: 4px;
+  }}
+  .tree-item .name {{
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }}
+  .tree-item .size {{
+    margin-left: auto;
+    padding-left: 8px;
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+  }}
+  .tree-group {{ display: none; }}
+  .tree-group.open {{ display: block; }}
+
+  /* Preview */
+  .preview {{
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }}
+  .preview-empty {{
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 14px;
+  }}
+  .preview-loading {{
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 13px;
+  }}
+  .preview-frame {{
+    flex: 1;
+    border: none;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+  }}
+  .preview-image {{
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    overflow: auto;
+    background: var(--bg);
+  }}
+  .preview-image img {{
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 4px;
+  }}
+  .preview-binary {{
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--text-muted);
+  }}
+  .preview-binary .filename {{
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--text);
+  }}
+  .preview-binary .dl-btn {{
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    text-decoration: none;
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+  }}
+  .preview-binary .dl-btn:hover {{ opacity: 0.9; }}
+
+  /* Mobile */
+  .sidebar-toggle {{
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text-header);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 4px;
+  }}
+  @media (max-width: 768px) {{
+    .sidebar-toggle {{ display: block; }}
+    .sidebar {{
+      position: fixed;
+      left: 0;
+      top: 44px;
+      bottom: 0;
+      z-index: 100;
+      transform: translateX(-100%);
+      transition: transform 0.2s ease;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.3);
+    }}
+    .sidebar.mobile-open {{
+      transform: translateX(0);
+    }}
+  }}
+
+  /* Breadcrumb */
+  .breadcrumb {{
+    padding: 6px 16px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }}
+</style>
+</head>
+<body>
+  <div class="header">
+    <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">&#9776;</button>
+    <span class="header-title">{dirname}</span>
+    <span class="header-meta">expires in <span class="countdown" id="countdown"></span></span>
+  </div>
+  <div class="layout">
+    <nav class="sidebar" id="sidebar"></nav>
+    <main class="preview" id="preview">
+      <div class="preview-empty">Select a file to preview</div>
+    </main>
+  </div>
+
+<script>
+(function() {{
+  var TREE = {tree_json};
+  var TOKEN = '{token}';
+  var EXPIRES = {expires_at};
+  var INITIAL_FILE = '{initial_file}';
+  var BASE = '{base_path}';
+
+  var activeEl = null;
+  var currentFile = null;
+
+  function updateCountdown() {{
+    var now = Date.now() / 1000;
+    var remaining = Math.max(0, EXPIRES - now);
+    if (remaining <= 0) {{
+      document.getElementById('countdown').textContent = 'expired';
+      return;
+    }}
+    var h = Math.floor(remaining / 3600);
+    var m = Math.floor((remaining % 3600) / 60);
+    var s = Math.floor(remaining % 60);
+    var parts = [];
+    if (h > 0) parts.push(h + 'h');
+    if (m > 0 || h > 0) parts.push(m + 'm');
+    parts.push(s + 's');
+    document.getElementById('countdown').textContent = parts.join(' ');
+  }}
+  updateCountdown();
+  setInterval(updateCountdown, 1000);
+
+  function fmtSize(n) {{
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+    return (n / 1073741824).toFixed(1) + ' GB';
+  }}
+
+  function fileIcon(name) {{
+    var ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+    var m = {{md:'\\ud83d\\udcdd',txt:'\\ud83d\\udcc4',json:'\\ud83d\\udccb',yaml:'\\ud83d\\udccb',yml:'\\ud83d\\udccb',toml:'\\ud83d\\udccb',py:'\\ud83d\\udc0d',js:'\\ud83d\\udcdc',ts:'\\ud83d\\udcdc',go:'\\ud83d\\udd35',rs:'\\ud83e\\udd80',rb:'\\ud83d\\udc8e',html:'\\ud83c\\udf10',css:'\\ud83c\\udfa8',svg:'\\ud83c\\udfa8',png:'\\ud83d\\uddbc',jpg:'\\ud83d\\uddbc',jpeg:'\\ud83d\\uddbc',gif:'\\ud83d\\uddbc',webp:'\\ud83d\\uddbc',avif:'\\ud83d\\uddbc',sh:'\\u26a1',bash:'\\u26a1',zsh:'\\u26a1'}};
+    return m[ext] || '\\ud83d\\udcc4';
+  }}
+
+  function escHtml(s) {{
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }}
+
+  var sidebar = document.getElementById('sidebar');
+  function renderTree(node, container, depth) {{
+    if (!node.children) return;
+    node.children.forEach(function(child) {{
+      var item = document.createElement('div');
+      item.className = 'tree-item';
+      item.style.paddingLeft = (8 + depth * 16) + 'px';
+
+      if (child.is_dir) {{
+        var group = document.createElement('div');
+        group.className = 'tree-group';
+        item.innerHTML = '<span class="icon">\\u25b6</span><span class="name">' + escHtml(child.name) + '</span>';
+        item.onclick = function(e) {{
+          e.stopPropagation();
+          var open = group.classList.toggle('open');
+          item.querySelector('.icon').textContent = open ? '\\u25bc' : '\\u25b6';
+        }};
+        container.appendChild(item);
+        container.appendChild(group);
+        renderTree(child, group, depth + 1);
+      }} else {{
+        item.innerHTML = '<span class="icon">' + fileIcon(child.name) + '</span>'
+          + '<span class="name">' + escHtml(child.name) + '</span>'
+          + '<span class="size">' + fmtSize(child.size) + '</span>';
+        item.dataset.path = child.rel_path;
+        item.onclick = function(e) {{
+          e.stopPropagation();
+          selectFile(child.rel_path, item);
+        }};
+        container.appendChild(item);
+      }}
+    }});
+  }}
+
+  renderTree(TREE, sidebar, 0);
+
+  function selectFile(relPath, el) {{
+    if (currentFile === relPath) return;
+    currentFile = relPath;
+
+    if (activeEl) activeEl.classList.remove('active');
+    if (el) {{ el.classList.add('active'); activeEl = el; }}
+
+    document.getElementById('sidebar').classList.remove('mobile-open');
+
+    var preview = document.getElementById('preview');
+    preview.innerHTML = '<div class="preview-loading">Loading\\u2026</div>';
+
+    var newUrl = BASE + '/d/' + TOKEN + '/' + relPath;
+    history.replaceState(null, '', newUrl);
+
+    fetch(BASE + '/d/' + TOKEN + '/api/file?path=' + encodeURIComponent(relPath))
+      .then(function(r) {{ if (!r.ok) throw new Error(r.status); return r.json(); }})
+      .then(function(data) {{
+        var bc = '<div class="breadcrumb">' + breadcrumb(relPath) + '</div>';
+        if (data.type === 'html') {{
+          preview.innerHTML = bc + '<iframe class="preview-frame" sandbox="allow-same-origin"></iframe>';
+          var iframe = preview.querySelector('iframe');
+          iframe.srcdoc = data.content;
+        }} else if (data.type === 'image') {{
+          preview.innerHTML = bc + '<div class="preview-image"><img src="' + escHtml(data.url) + '" alt="' + escHtml(relPath) + '"></div>';
+        }} else {{
+          preview.innerHTML = bc + '<div class="preview-binary">'
+            + '<div class="filename">' + escHtml(data.filename) + '</div>'
+            + '<div>' + fmtSize(data.size) + '</div>'
+            + '<a class="dl-btn" href="' + escHtml(data.url) + '" download>Download</a></div>';
+        }}
+      }})
+      .catch(function(err) {{
+        preview.innerHTML = '<div class="preview-empty">Failed to load: ' + escHtml(relPath) + '</div>';
+      }});
+  }}
+
+  function breadcrumb(relPath) {{
+    var parts = relPath.split('/');
+    var html = escHtml(TREE.name);
+    for (var i = 0; i < parts.length - 1; i++) {{
+      html += ' / ' + escHtml(parts[i]);
+    }}
+    html += ' / ' + escHtml(parts[parts.length - 1]);
+    return html;
+  }}
+
+  window.toggleSidebar = function() {{
+    document.getElementById('sidebar').classList.toggle('mobile-open');
+  }};
+
+  if (INITIAL_FILE) {{
+    var parts = INITIAL_FILE.split('/');
+    var current = sidebar;
+    for (var i = 0; i < parts.length - 1; i++) {{
+      var items = current.querySelectorAll(':scope > .tree-item');
+      for (var j = 0; j < items.length; j++) {{
+        var nameEl = items[j].querySelector('.name');
+        if (nameEl && nameEl.textContent === parts[i]) {{
+          var group = items[j].nextElementSibling;
+          if (group && group.classList.contains('tree-group')) {{
+            group.classList.add('open');
+            items[j].querySelector('.icon').textContent = '\\u25bc';
+            current = group;
+          }}
+          break;
+        }}
+      }}
+    }}
+    var fileItems = sidebar.querySelectorAll('.tree-item[data-path]');
+    for (var k = 0; k < fileItems.length; k++) {{
+      if (fileItems[k].dataset.path === INITIAL_FILE) {{
+        selectFile(INITIAL_FILE, fileItems[k]);
+        fileItems[k].scrollIntoView({{ block: 'center' }});
+        break;
+      }}
+    }}
+  }}
+}})();
+</script>
+</body>
+</html>"""
+
+
+OWNER_LOGIN_TEMPLATE = (
+    '<!DOCTYPE html><html><head>'
+    + BASE_HEAD
+    + '<meta name="robots" content="noindex, nofollow">'
+    '<title>Owner Login — vibefs</title><style>'
+    + VERIFY_PAGE_CSS
+    + '</style></head><body><div class="container">'
+    '<h1>Owner Login</h1>'
+    '<p class="hint">Enter password for full access</p>'
+    '<form method="POST" action="/owner/login">'
+    '<input type="hidden" name="next" value="{{next}}">'
+    '<input type="password" name="password" placeholder="Password" autofocus>'
+    '<button type="submit">Login</button>\n'
+    '% if error:\n'
+    '<p class="error">{{error}}</p>\n'
+    '% end\n'
+    '</form></div></body></html>'
+)
+
+
+DASHBOARD_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Dashboard — vibefs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@100..900&family=Google+Sans+Code:wght@100..700&display=swap" rel="stylesheet">
+<style>
+  :root {{
+    --bg: #1e1e1e;
+    --bg-header: #2d2d2d;
+    --bg-row: #252526;
+    --bg-row-hover: #2a2d2e;
+    --border: #404040;
+    --text: #d4d4d4;
+    --text-header: #e0e0e0;
+    --text-muted: #888888;
+    --link: #6ab0f3;
+    --green: #4ec994;
+    --red: #f4796b;
+    --font-sans: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'Google Sans Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  }}
+  @media (prefers-color-scheme: light) {{
+    :root {{
+      --bg: #ffffff;
+      --bg-header: #f6f8fa;
+      --bg-row: #ffffff;
+      --bg-row-hover: #f6f8fa;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --text-header: #1f2328;
+      --text-muted: #656d76;
+      --link: #0969da;
+      --green: #1a7f37;
+      --red: #cf222e;
+    }}
+  }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }}
+  .page-header {{
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+  }}
+  .page-header h1 {{
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-header);
+  }}
+  .page-header .subtitle {{
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }}
+  .shares-table {{
+    width: 100%;
+    border-collapse: collapse;
+  }}
+  .shares-table th {{
+    background: var(--bg-header);
+    text-align: left;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }}
+  .shares-table td {{
+    padding: 10px 16px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-row);
+  }}
+  .shares-table tr:hover td {{ background: var(--bg-row-hover); }}
+  .shares-table .type-badge {{
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+  }}
+  .type-file {{ background: #2d4a7a; color: #8bb9fe; }}
+  .type-dir {{ background: #2d5a3a; color: #7cda9c; }}
+  .type-git {{ background: #5a3a2d; color: #daa07c; }}
+  @media (prefers-color-scheme: light) {{
+    .type-file {{ background: #dbeafe; color: #1e40af; }}
+    .type-dir {{ background: #dcfce7; color: #166534; }}
+    .type-git {{ background: #fef3c7; color: #92400e; }}
+  }}
+  .shares-table .path {{
+    font-family: var(--font-mono);
+    font-size: 12px;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }}
+  .shares-table .token-link {{
+    font-family: var(--font-mono);
+    color: var(--link);
+    text-decoration: none;
+  }}
+  .shares-table .token-link:hover {{ text-decoration: underline; }}
+  .status-active {{ color: var(--green); }}
+  .status-expired {{ color: var(--red); opacity: 0.7; }}
+  .expired-row td {{ opacity: 0.5; }}
+  .empty-state {{
+    text-align: center;
+    padding: 60px 24px;
+    color: var(--text-muted);
+  }}
+  @media (max-width: 768px) {{
+    .shares-table {{ font-size: 12px; }}
+    .shares-table th, .shares-table td {{ padding: 8px 10px; }}
+  }}
+</style>
+</head>
+<body>
+  <div class="page-header">
+    <h1>vibefs dashboard</h1>
+    <div class="subtitle">{share_count} shares ({active_count} active)</div>
+  </div>
+  % if not shares:
+  <div class="empty-state">No shares yet</div>
+  % else:
+  <table class="shares-table">
+    <thead>
+      <tr><th>Type</th><th>Path</th><th>Token</th><th>Created</th><th>Expires</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      % for s in shares:
+      <tr class="{{'expired-row' if s['status'] == 'expired' else ''}}">
+        <td><span class="type-badge type-{{s['type']}}">{{s['type']}}</span></td>
+        <td class="path" title="{{s['path']}}">{{s['display_path']}}</td>
+        <td><a class="token-link" href="{{s['url']}}">{{s['token'][:8]}}…</a></td>
+        <td>{{s['created_str']}}</td>
+        <td>{{s['expires_str']}}</td>
+        <td class="status-{{s['status']}}">{{s['status']}}</td>
+      </tr>
+      % end
+    </tbody>
+  </table>
+  % end
+</body>
+</html>"""
