@@ -3,7 +3,7 @@ import os
 import threading
 import time
 
-from .constants import MAX_DIR_FILES
+from .constants import MAX_DIR_FILES, TIME_FORMAT
 
 # Simple TTL cache for walk_directory results
 _tree_cache = {}  # key: (dirpath, excludes_tuple) -> (tree, timestamp)
@@ -55,6 +55,19 @@ def _js_string_escape(text):
     text = text.replace('\r', '\\r')
     text = text.replace('</', '<\\/')
     return text
+
+
+def get_file_meta(filepath):
+    """Return dict with display_path, size, mtime, ctime strings."""
+    stat = os.stat(filepath)
+    return {
+        'display_path': _display_path(filepath),
+        'size': _format_size(stat.st_size),
+        'mtime': time.strftime(TIME_FORMAT, time.localtime(stat.st_mtime)),
+        'ctime': time.strftime(TIME_FORMAT, time.localtime(
+            stat.st_birthtime if hasattr(stat, 'st_birthtime') else stat.st_ctime
+        )),
+    }
 
 
 def is_safe_subpath(base, target):

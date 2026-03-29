@@ -1,18 +1,14 @@
+import base64
 import csv
 import io
 import mimetypes
 import os
-import time
 
 import bottle
 
 from .config import load_config
-from .utils import _display_path, _format_size, _html_escape
-from .templates import (
-    MARKDOWN_HTML_TEMPLATE, CODE_HTML_TEMPLATE,
-    CSV_HTML_TEMPLATE, MEDIA_HTML_TEMPLATE,
-    _dual_pygments_css,
-)
+from .utils import _html_escape, get_file_meta
+from .templates import render_template, _dual_pygments_css
 
 
 class BaseRenderer:
@@ -71,15 +67,12 @@ class MarkdownRenderer:
         body_html = md.render(source)
         body_html = body_html.replace('<table>', '<div class="table-wrapper"><table>').replace('</table>', '</table></div>')
 
-        display_path = _display_path(filepath)
-        stat = os.stat(filepath)
-        file_size = _format_size(stat.st_size)
-        file_mtime = time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime))
+        meta = get_file_meta(filepath)
 
         bottle.response.content_type = 'text/html; charset=utf-8'
-        return MARKDOWN_HTML_TEMPLATE.format(
-            display_path=display_path,
-            file_meta=f'{file_size} · {file_mtime}',
+        return render_template('markdown.html',
+            display_path=meta['display_path'],
+            file_meta=f'{meta["size"]} \u00b7 {meta["mtime"]}',
             pygments_css=pygments_css,
             body_html=body_html,
         )
@@ -118,18 +111,12 @@ class CodeRenderer:
         )
         highlighted = highlight(code, lexer, formatter)
         css = _dual_pygments_css(linenos=linenos)
-        display_path = _display_path(filepath)
-        stat = os.stat(filepath)
-        file_size = _format_size(stat.st_size)
-        file_mtime = time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime))
-        file_ctime = time.strftime(
-            '%Y-%m-%d %H:%M', time.localtime(stat.st_birthtime if hasattr(stat, 'st_birthtime') else stat.st_ctime)
-        )
+        meta = get_file_meta(filepath)
 
         bottle.response.content_type = 'text/html; charset=utf-8'
-        return CODE_HTML_TEMPLATE.format(
-            display_path=display_path,
-            file_meta=f'{file_size} · {file_mtime} (mtime) · {file_ctime} (ctime)',
+        return render_template('code.html',
+            display_path=meta['display_path'],
+            file_meta=f'{meta["size"]} \u00b7 {meta["mtime"]} (mtime) \u00b7 {meta["ctime"]} (ctime)',
             pygments_css=css,
             highlighted=highlighted,
         )
@@ -165,16 +152,13 @@ class CsvRenderer:
                 tbody += '<tr>' + ''.join(f'<td>{_html_escape(c)}</td>' for c in row) + '</tr>'
             body_html = f'<table><thead>{thead}</thead><tbody>{tbody}</tbody></table>'
 
-        display_path = _display_path(filepath)
-        stat = os.stat(filepath)
-        file_size = _format_size(stat.st_size)
-        file_mtime = time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime))
+        meta = get_file_meta(filepath)
         row_count = max(0, len(rows) - 1)
 
         bottle.response.content_type = 'text/html; charset=utf-8'
-        return CSV_HTML_TEMPLATE.format(
-            display_path=display_path,
-            file_meta=f'{file_size} · {row_count} rows · {file_mtime}',
+        return render_template('csv.html',
+            display_path=meta['display_path'],
+            file_meta=f'{meta["size"]} \u00b7 {row_count} rows \u00b7 {meta["mtime"]}',
             body_html=body_html,
         )
 
@@ -206,10 +190,8 @@ class MediaRenderer:
         is_audio = ext in self.AUDIO_EXTS
         tag = 'audio' if is_audio else 'video'
 
-        display_path = _display_path(filepath)
+        meta = get_file_meta(filepath)
         stat = os.stat(filepath)
-        file_size = _format_size(stat.st_size)
-        file_mtime = time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime))
 
         # For large files (>50MB), fall back to raw download
         if stat.st_size > 50 * 1024 * 1024:
@@ -217,7 +199,6 @@ class MediaRenderer:
             with open(filepath, 'rb') as f:
                 return f.read()
 
-        import base64
         with open(filepath, 'rb') as f:
             data = base64.b64encode(f.read()).decode('ascii')
         data_uri = f'data:{content_type};base64,{data}'
@@ -225,9 +206,9 @@ class MediaRenderer:
         media_html = f'<{tag} controls><source src="{data_uri}" type="{content_type}">Your browser does not support this media.</{tag}>'
 
         bottle.response.content_type = 'text/html; charset=utf-8'
-        return MEDIA_HTML_TEMPLATE.format(
-            display_path=display_path,
-            file_meta=f'{file_size} · {file_mtime}',
+        return render_template('media.html',
+            display_path=meta['display_path'],
+            file_meta=f'{meta["size"]} \u00b7 {meta["mtime"]}',
             media_type=media_html,
         )
 
@@ -239,17 +220,13 @@ class SvgRenderer:
         with open(filepath) as f:
             svg_content = f.read()
 
-        display_path = _display_path(filepath)
-        stat = os.stat(filepath)
-        file_size = _format_size(stat.st_size)
-        file_mtime = time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime))
-
+        meta = get_file_meta(filepath)
         media_html = f'<div class="svg-container">{svg_content}</div>'
 
         bottle.response.content_type = 'text/html; charset=utf-8'
-        return MEDIA_HTML_TEMPLATE.format(
-            display_path=display_path,
-            file_meta=f'{file_size} · {file_mtime}',
+        return render_template('media.html',
+            display_path=meta['display_path'],
+            file_meta=f'{meta["size"]} \u00b7 {meta["mtime"]}',
             media_type=media_html,
         )
 
