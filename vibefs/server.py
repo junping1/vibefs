@@ -380,41 +380,7 @@ def serve_dir(token):
     )
 
 
-@app.route('/d/<token>/<filepath:path>')
-def serve_dir_file(token, filepath):
-    # If it's an API path, skip (handled by specific routes below)
-    if filepath.startswith('api/'):
-        bottle.abort(404, 'Not found')
-
-    row, expired_resp = _get_dir_auth(token)
-    if expired_resp is not None:
-        return expired_resp
-
-    dirpath = row['dirpath']
-    if not os.path.isdir(dirpath):
-        bottle.abort(404, 'Directory no longer exists on disk')
-
-    excludes = json_mod.loads(row['excludes'])
-
-    try:
-        tree = walk_directory(dirpath, excludes)
-    except ValueError as e:
-        bottle.abort(413, str(e))
-
-    cfg = load_config()
-    base_path = cfg.get('base_url', '').rstrip('/')
-
-    bottle.response.content_type = 'text/html; charset=utf-8'
-    return DIR_BROWSER_TEMPLATE.format(
-        dirname=_html_escape(row['dirname']),
-        token=token,
-        tree_json=_js_safe_json(tree),
-        expires_at=f'{row["expires_at"]:.0f}',
-        initial_file=_js_string_escape(filepath),
-        base_path=_js_string_escape(base_path),
-    )
-
-
+# API routes MUST be defined before the catch-all <filepath:path> route
 @app.route('/d/<token>/api/tree')
 def dir_api_tree(token):
     row, expired_resp = _get_dir_auth(token)
@@ -492,3 +458,35 @@ def dir_raw_file(token):
     directory = os.path.dirname(abs_path)
     filename = os.path.basename(abs_path)
     return bottle.static_file(filename, root=directory)
+
+
+# Catch-all for deep links into directory (MUST be after API routes)
+@app.route('/d/<token>/<filepath:path>')
+def serve_dir_file(token, filepath):
+    row, expired_resp = _get_dir_auth(token)
+    if expired_resp is not None:
+        return expired_resp
+
+    dirpath = row['dirpath']
+    if not os.path.isdir(dirpath):
+        bottle.abort(404, 'Directory no longer exists on disk')
+
+    excludes = json_mod.loads(row['excludes'])
+
+    try:
+        tree = walk_directory(dirpath, excludes)
+    except ValueError as e:
+        bottle.abort(413, str(e))
+
+    cfg = load_config()
+    base_path = cfg.get('base_url', '').rstrip('/')
+
+    bottle.response.content_type = 'text/html; charset=utf-8'
+    return DIR_BROWSER_TEMPLATE.format(
+        dirname=_html_escape(row['dirname']),
+        token=token,
+        tree_json=_js_safe_json(tree),
+        expires_at=f'{row["expires_at"]:.0f}',
+        initial_file=_js_string_escape(filepath),
+        base_path=_js_string_escape(base_path),
+    )
