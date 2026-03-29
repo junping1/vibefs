@@ -637,7 +637,7 @@
   }
 
   function closeSidebar() {
-    closeSidebar();
+    document.getElementById('sidebar').classList.remove('mobile-open');
     document.getElementById('sidebar-overlay').classList.remove('visible');
   }
   window.toggleSidebar = function() {
