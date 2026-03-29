@@ -1,7 +1,14 @@
 import fnmatch
 import os
+import threading
+import time
 
 from .constants import MAX_DIR_FILES
+
+# Simple TTL cache for walk_directory results
+_tree_cache = {}  # key: (dirpath, excludes_tuple) -> (tree, timestamp)
+_tree_cache_lock = threading.Lock()
+_TREE_CACHE_TTL = 30  # seconds
 
 
 def _display_path(filepath):
@@ -21,6 +28,33 @@ def _format_size(nbytes):
 
 def _html_escape(text):
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
+
+def _js_safe_json(obj):
+    """Serialize to JSON and escape sequences that break <script> context.
+
+    Prevents XSS via filenames containing </script>, <!--, etc.
+    """
+    import json
+    s = json.dumps(obj)
+    # Escape sequences that could break out of <script> tags
+    s = s.replace('</', '<\\/')
+    s = s.replace('<!--', '<\\!--')
+    return s
+
+
+def _js_string_escape(text):
+    """Escape a string for safe embedding inside a JS single-quoted string literal.
+
+    Handles: backslash, single quotes, newlines, and </script> injection.
+    """
+    text = text.replace('\\', '\\\\')
+    text = text.replace("'", "\\'")
+    text = text.replace('"', '\\"')
+    text = text.replace('\n', '\\n')
+    text = text.replace('\r', '\\r')
+    text = text.replace('</', '<\\/')
+    return text
 
 
 def is_safe_subpath(base, target):
@@ -48,7 +82,29 @@ def walk_directory(dirpath, excludes):
     Returns dict: {name, rel_path, is_dir, size, children}
     Refuses to follow symlinks that escape the base directory.
     Raises ValueError if file count exceeds MAX_DIR_FILES.
+    Results are cached for _TREE_CACHE_TTL seconds to avoid redundant scans.
     """
+    cache_key = (os.path.realpath(dirpath), tuple(excludes))
+    now = time.time()
+    with _tree_cache_lock:
+        cached = _tree_cache.get(cache_key)
+        if cached and now - cached[1] < _TREE_CACHE_TTL:
+            return cached[0]
+
+    tree = _walk_directory_uncached(dirpath, excludes)
+
+    with _tree_cache_lock:
+        # Evict stale entries while we're here
+        stale = [k for k, (_, ts) in _tree_cache.items() if now - ts > _TREE_CACHE_TTL * 2]
+        for k in stale:
+            del _tree_cache[k]
+        _tree_cache[cache_key] = (tree, now)
+
+    return tree
+
+
+def _walk_directory_uncached(dirpath, excludes):
+    """Internal: walk directory without caching."""
     base_real = os.path.realpath(dirpath)
     file_count = 0
 

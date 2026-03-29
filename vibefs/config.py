@@ -17,6 +17,8 @@ def save_config(cfg):
     with open(CONFIG_PATH, 'w') as f:
         json.dump(cfg, f, indent=2)
         f.write('\n')
+    # Restrict permissions: config contains owner_key
+    os.chmod(CONFIG_PATH, 0o600)
 
 
 def get_owner_key():
