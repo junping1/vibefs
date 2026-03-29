@@ -11,6 +11,7 @@ import click
 from .constants import (
     DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TTL, DIR_DEFAULT_TTL, DEFAULT_EXCLUDES,
     SHARES_DIR, SHARE_TYPE_MAP, MAX_SHARE_SIZE, TUNNEL_URL_PATH, ensure_state_dir,
+    STATUS_ACTIVE, STATUS_EXPIRED,
 )
 from .config import load_config, save_config, get_owner_key
 from .db import (
@@ -341,7 +342,7 @@ def list_cmd(output_json):
             'token': row['token'],
             'type': 'file',
             'path': row['filepath'],
-            'status': 'active' if remaining > 0 else 'expired',
+            'status': STATUS_ACTIVE if remaining > 0 else STATUS_EXPIRED,
             'remaining': max(0, int(remaining)),
             'expires_at': row['expires_at'],
             'url': _build_url(cfg, 'f', row['token'], DEFAULT_PORT),
@@ -356,7 +357,7 @@ def list_cmd(output_json):
             'type': 'git',
             'path': row['repo_path'],
             'name': row['commit_hash'][:12],
-            'status': 'active' if remaining > 0 else 'expired',
+            'status': STATUS_ACTIVE if remaining > 0 else STATUS_EXPIRED,
             'remaining': max(0, int(remaining)),
             'expires_at': row['expires_at'],
             'url': _build_url(cfg, 'git', row['token'], DEFAULT_PORT),
@@ -369,7 +370,7 @@ def list_cmd(output_json):
             'token': row['token'],
             'type': 'dir',
             'path': row['dirpath'],
-            'status': 'active' if remaining > 0 else 'expired',
+            'status': STATUS_ACTIVE if remaining > 0 else STATUS_EXPIRED,
             'remaining': max(0, int(remaining)),
             'expires_at': row['expires_at'],
             'url': _build_url(cfg, 'd', row['token'], DEFAULT_PORT),
@@ -390,17 +391,17 @@ def list_cmd(output_json):
     if files:
         click.echo('Files:')
         for s in files:
-            status = f'{s["remaining"]}s remaining' if s['status'] == 'active' else 'expired'
+            status = f'{s["remaining"]}s remaining' if s['status'] == STATUS_ACTIVE else STATUS_EXPIRED
             click.echo(f'  {s["token"]}  {s["path"]}  [{status}]')
     if gits:
         click.echo('Git commits:')
         for s in gits:
-            status = f'{s["remaining"]}s remaining' if s['status'] == 'active' else 'expired'
+            status = f'{s["remaining"]}s remaining' if s['status'] == STATUS_ACTIVE else STATUS_EXPIRED
             click.echo(f'  {s["token"]}  {_display_path(s["path"])} {s["name"]}  [{status}]')
     if dirs:
         click.echo('Directories:')
         for s in dirs:
-            status = f'{s["remaining"]}s remaining' if s['status'] == 'active' else 'expired'
+            status = f'{s["remaining"]}s remaining' if s['status'] == STATUS_ACTIVE else STATUS_EXPIRED
             click.echo(f'  {s["token"]}  {_display_path(s["path"])}  [{status}]')
 
 
