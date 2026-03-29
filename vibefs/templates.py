@@ -550,6 +550,212 @@ GIT_HTML_TEMPLATE = """<!DOCTYPE html>
 </html>"""
 
 
+CSV_HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{display_path}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@100..900&family=Google+Sans+Code:wght@100..700&display=swap" rel="stylesheet">
+<style>
+  :root {{
+    --bg: #1e1e1e;
+    --bg-header: #2d2d2d;
+    --bg-row-even: #252525;
+    --border: #404040;
+    --text: #d4d4d4;
+    --text-header: #e0e0e0;
+    --text-muted: #888888;
+    --font-sans: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'Google Sans Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  }}
+  @media (prefers-color-scheme: light) {{
+    :root {{
+      --bg: #ffffff;
+      --bg-header: #f6f8fa;
+      --bg-row-even: #f6f8fa;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --text-header: #1f2328;
+      --text-muted: #656d76;
+    }}
+  }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }}
+  .file-header {{
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+  }}
+  .file-path {{
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-header);
+    font-family: var(--font-mono);
+  }}
+  .file-meta {{
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }}
+  .table-container {{
+    overflow-x: auto;
+    padding: 0;
+  }}
+  table {{
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+    font-family: var(--font-mono);
+  }}
+  thead th {{
+    background: var(--bg-header);
+    color: var(--text-header);
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }}
+  tbody td {{
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }}
+  tbody tr:nth-child(even) td {{
+    background: var(--bg-row-even);
+  }}
+  tbody tr:hover td {{
+    background: var(--bg-header);
+  }}
+  @media (max-width: 768px) {{
+    .file-header {{ padding: 10px 12px; }}
+    table {{ font-size: 12px; }}
+    thead th, tbody td {{ padding: 5px 8px; }}
+  }}
+</style>
+</head>
+<body>
+  <div class="file-header">
+    <div class="file-path">{display_path}</div>
+    <div class="file-meta">{file_meta}</div>
+  </div>
+  <div class="table-container">
+    {body_html}
+  </div>
+</body>
+</html>"""
+
+
+MEDIA_HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{display_path}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@100..900&family=Google+Sans+Code:wght@100..700&display=swap" rel="stylesheet">
+<style>
+  :root {{
+    --bg: #1e1e1e;
+    --bg-header: #2d2d2d;
+    --border: #404040;
+    --text: #d4d4d4;
+    --text-header: #e0e0e0;
+    --text-muted: #888888;
+    --font-sans: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'Google Sans Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  }}
+  @media (prefers-color-scheme: light) {{
+    :root {{
+      --bg: #ffffff;
+      --bg-header: #f6f8fa;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --text-header: #1f2328;
+      --text-muted: #656d76;
+    }}
+  }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }}
+  .file-header {{
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+  }}
+  .file-path {{
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-header);
+    font-family: var(--font-mono);
+  }}
+  .file-meta {{
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }}
+  .media-container {{
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }}
+  video, audio {{
+    max-width: 100%;
+    max-height: 80vh;
+    border-radius: 8px;
+  }}
+  audio {{
+    width: 100%;
+    max-width: 500px;
+  }}
+  .svg-container {{
+    max-width: 100%;
+    max-height: 80vh;
+    overflow: auto;
+  }}
+  .svg-container svg {{
+    max-width: 100%;
+    height: auto;
+  }}
+</style>
+</head>
+<body>
+  <div class="file-header">
+    <div class="file-path">{display_path}</div>
+    <div class="file-meta">{file_meta}</div>
+  </div>
+  <div class="media-container">
+    {media_type}
+  </div>
+</body>
+</html>"""
+
+
 DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1035,6 +1241,14 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
       return bc + '<iframe class="preview-frame" sandbox="allow-same-origin" data-srcdoc></iframe>';
     }} else if (data.type === 'image') {{
       return bc + '<div class="preview-image"><img src="' + escHtml(data.url) + '" alt="' + escHtml(relPath) + '"></div>';
+    }} else if (data.type === 'pdf') {{
+      return bc + '<iframe class="preview-frame" src="' + escHtml(data.url) + '" style="border:none"></iframe>';
+    }} else if (data.type === 'media') {{
+      var ext = relPath.split('.').pop().toLowerCase();
+      var isAudio = ['mp3','wav','ogg','flac','aac','m4a','opus','weba'].indexOf(ext) !== -1;
+      var tag = isAudio ? 'audio' : 'video';
+      return bc + '<div class="preview-image"><' + tag + ' controls style="max-width:100%;max-height:70vh">'
+        + '<source src="' + escHtml(data.url) + '"></' + tag + '></div>';
     }} else {{
       return bc + '<div class="preview-binary">'
         + '<div class="filename">' + escHtml(data.filename) + '</div>'

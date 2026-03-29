@@ -485,19 +485,27 @@ def dir_api_file(token):
     except OSError:
         file_size = 0
 
-    if file_type == 'image':
-        raw_url = f'{base_url}/d/{token}/raw?path={urllib.parse.quote(rel_path)}'
+    raw_url = f'{base_url}/d/{token}/raw?path={urllib.parse.quote(rel_path)}'
+
+    if file_type in ('image', 'svg'):
         bottle.response.content_type = 'application/json'
         return json_mod.dumps({'type': 'image', 'url': raw_url})
 
-    if file_type in ('code', 'markdown') and file_size <= MAX_RENDER_SIZE:
+    if file_type == 'pdf':
+        bottle.response.content_type = 'application/json'
+        return json_mod.dumps({'type': 'pdf', 'url': raw_url})
+
+    if file_type in ('code', 'markdown', 'csv') and file_size <= MAX_RENDER_SIZE:
         renderer = get_renderer(abs_path)
         html_content = renderer.render(abs_path)
         bottle.response.content_type = 'application/json'
         return json_mod.dumps({'type': 'html', 'content': html_content})
 
+    if file_type == 'media':
+        bottle.response.content_type = 'application/json'
+        return json_mod.dumps({'type': 'media', 'url': raw_url, 'filename': os.path.basename(abs_path), 'size': file_size})
+
     # Binary / unknown / oversized text
-    raw_url = f'{base_url}/d/{token}/raw?path={urllib.parse.quote(rel_path)}'
     filename = os.path.basename(abs_path)
     bottle.response.content_type = 'application/json'
     return json_mod.dumps({'type': 'binary', 'filename': filename, 'size': file_size, 'url': raw_url})
