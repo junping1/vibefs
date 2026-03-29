@@ -6,7 +6,7 @@ import time
 import click
 
 from .constants import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TTL, DIR_DEFAULT_TTL, DEFAULT_EXCLUDES, ensure_state_dir
-from .config import load_config, save_config
+from .config import load_config, save_config, get_owner_key
 from .db import (
     add_authorization, remove_authorization, list_authorizations,
     add_git_authorization, add_dir_authorization, list_dir_authorizations, get_db,
@@ -229,6 +229,21 @@ def status():
         click.echo(f'Daemon is running (pid {pid}).')
     else:
         click.echo('Daemon is not running.')
+
+
+@cli.command('owner-url')
+def owner_url():
+    """Print the owner dashboard URL (auto-generates key on first run)."""
+    key = get_owner_key()
+    cfg = load_config()
+    base_url = cfg.get('base_url', '')
+    if base_url:
+        url = f'{base_url.rstrip("/")}/dashboard?key={key}'
+    else:
+        url = f'http://localhost:{DEFAULT_PORT}/dashboard?key={key}'
+    click.echo(url)
+    click.echo('Open this URL once in your browser — it sets a 30-day cookie.', err=True)
+    click.echo('After that, /dashboard works without the key.', err=True)
 
 
 @cli.group()
