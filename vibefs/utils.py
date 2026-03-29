@@ -174,12 +174,31 @@ def _walk_directory_uncached(dirpath, excludes):
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp', '.avif'}
 
 
+PDF_EXTENSIONS = {'.pdf'}
+MEDIA_EXTENSIONS = {
+    '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.opus', '.weba',
+    '.mp4', '.webm', '.ogv', '.mov', '.avi', '.mkv',
+}
+CSV_EXTENSIONS = {'.csv', '.tsv', '.tab'}
+
+
 def get_file_type(filepath):
-    """Determine the file type category for preview purposes."""
+    """Determine the file type category for preview purposes.
+
+    Returns: 'image', 'markdown', 'code', 'csv', 'pdf', 'media', 'svg', or 'binary'.
+    """
     _, ext = os.path.splitext(filepath)
     ext = ext.lower()
+    if ext == '.svg':
+        return 'svg'
     if ext in IMAGE_EXTENSIONS:
         return 'image'
+    if ext in PDF_EXTENSIONS:
+        return 'pdf'
+    if ext in MEDIA_EXTENSIONS:
+        return 'media'
+    if ext in CSV_EXTENSIONS:
+        return 'csv'
     from .renderers import _renderers, MarkdownRenderer
     renderer = _renderers.get(ext)
     if isinstance(renderer, MarkdownRenderer):
