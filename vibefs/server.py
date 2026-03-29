@@ -8,7 +8,7 @@ import threading
 
 import bottle
 
-from .config import load_config
+from .config import load_config, get_owner_key
 from .constants import DEFAULT_TTL, DIR_DEFAULT_TTL
 from .db import (
     get_db, lookup_authorization, lookup_dir_authorization,
@@ -17,7 +17,7 @@ from .db import (
 from .renderers import get_renderer
 from .templates import (
     GIT_HTML_TEMPLATE, EXPIRED_TEMPLATE, EXPIRED_VERIFY_TEMPLATE,
-    DIR_BROWSER_TEMPLATE, OWNER_LOGIN_TEMPLATE, DASHBOARD_TEMPLATE,
+    DIR_BROWSER_TEMPLATE, DASHBOARD_TEMPLATE,
     _dual_pygments_css,
 )
 from .utils import (
@@ -73,20 +73,16 @@ def _check_expired_auth(password):
 
 def _check_owner_auth():
     """Check if the request has a valid owner cookie (30-day)."""
-    cfg = load_config()
-    password = cfg.get('password')
-    if not password:
-        return False
-    return bottle.request.get_cookie('vibefs_owner', secret=password) == 'owner'
+    owner_key = get_owner_key()
+    return bottle.request.get_cookie('vibefs_owner', secret=owner_key) == 'owner'
 
 
 def _handle_expired(row, name_field, token, table='authorizations'):
     """Handle expired authorization. Returns response HTML or None if owner-authed."""
     cfg = load_config()
-    password = cfg.get('password')
 
     # Owner cookie bypasses expiry
-    if password and _check_owner_auth():
+    if _check_owner_auth():
         ttl = cfg.get('file_ttl', DEFAULT_TTL)
         if table == 'dir_authorizations':
             ttl = cfg.get('dir_default_ttl', DIR_DEFAULT_TTL)
@@ -96,7 +92,8 @@ def _handle_expired(row, name_field, token, table='authorizations'):
         db.close()
         return None  # Proceed to serve
 
-    # Regular auth cookie
+    # Regular auth cookie (for backward compat with password config)
+    password = cfg.get('password')
     if password and _check_expired_auth(password):
         ttl = cfg.get('file_ttl', DEFAULT_TTL)
         if table == 'dir_authorizations':
@@ -143,46 +140,38 @@ def verify_submit():
         return bottle.template(EXPIRED_VERIFY_TEMPLATE, next=next_url, error='Incorrect password')
 
 
-# --- Owner auth ---
+# --- Owner auth (key-based) ---
 
-@app.route('/owner/login')
-def owner_login():
+@app.route('/owner/auth')
+def owner_auth():
+    """Authenticate owner via ?key= param, set long-lived cookie."""
+    key = bottle.request.query.get('key', '')
     next_url = bottle.request.query.get('next', '/dashboard')
-    cfg = load_config()
-    password = cfg.get('password')
-    if not password:
-        bottle.abort(403, 'No password configured')
-    if _check_owner_auth():
-        bottle.redirect(next_url)
-    return bottle.template(OWNER_LOGIN_TEMPLATE, next=next_url, error='')
-
-
-@app.post('/owner/login')
-def owner_login_submit():
-    next_url = bottle.request.forms.get('next', '/dashboard')
     if not next_url.startswith('/'):
         next_url = '/dashboard'
-    cfg = load_config()
-    password = cfg.get('password')
-    if not password:
-        bottle.abort(403, 'No password configured')
 
-    submitted = bottle.request.forms.get('password', '')
-    if submitted == password:
-        bottle.response.set_cookie('vibefs_owner', 'owner', secret=password, path='/', max_age=30 * 86400)
-        # Also set the regular auth cookie for convenience
-        bottle.response.set_cookie('vibefs_auth', 'verified', secret=password, path='/', max_age=30 * 86400)
-        bottle.redirect(next_url)
-    else:
-        return bottle.template(OWNER_LOGIN_TEMPLATE, next=next_url, error='Incorrect password')
+    owner_key = get_owner_key()
+    if not key or key != owner_key:
+        bottle.abort(403, 'Invalid key')
+
+    bottle.response.set_cookie('vibefs_owner', 'owner', secret=owner_key, path='/', max_age=30 * 86400)
+    bottle.redirect(next_url)
 
 
 # --- Dashboard ---
 
 @app.route('/dashboard')
 def dashboard():
-    if not _check_owner_auth():
-        bottle.redirect('/owner/login?next=/dashboard')
+    # Allow ?key= param to authenticate inline
+    key = bottle.request.query.get('key', '')
+    if key:
+        owner_key = get_owner_key()
+        if key == owner_key:
+            bottle.response.set_cookie('vibefs_owner', 'owner', secret=owner_key, path='/', max_age=30 * 86400)
+        else:
+            bottle.abort(403, 'Invalid key')
+    elif not _check_owner_auth():
+        bottle.abort(403, 'Access denied')
 
     shares = list_all_authorizations()
     for s in shares:
