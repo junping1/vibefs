@@ -3,7 +3,7 @@ import os
 DEFAULT_PORT = 17173
 DEFAULT_HOST = '0.0.0.0'
 DEFAULT_TTL = 3600  # 1 hour
-TOKEN_LENGTH = 2  # bytes, produces 4 hex chars
+TOKEN_LENGTH = 4  # bytes, produces 8 hex chars
 DIR_TOKEN_LENGTH = 6  # bytes, produces 12 hex chars
 OWNER_KEY_LENGTH = 16  # bytes, produces 32 hex chars
 DIR_DEFAULT_TTL = 10800  # 3 hours

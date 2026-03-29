@@ -18,7 +18,7 @@ from .daemon import (
 from .server import app
 from .utils import _display_path
 
-VALID_CONFIG_KEYS = ['base_url', 'file_ttl', 'dir_default_ttl', 'auto_stop', 'password', 'default_excludes', 'pygments.style', 'pygments.linenos']
+VALID_CONFIG_KEYS = ['base_url', 'port', 'file_ttl', 'dir_default_ttl', 'auto_stop', 'password', 'default_excludes', 'pygments.style', 'pygments.linenos']
 
 
 def _get_nested(cfg, key):
@@ -44,7 +44,7 @@ def _set_nested(cfg, key, value):
         value = value.lower() in ('true', '1', 'yes', 'table', 'inline')
     elif key == 'auto_stop':
         value = value.lower() in ('true', '1', 'yes')
-    elif key == 'file_ttl':
+    elif key in ('file_ttl', 'port'):
         value = int(value)
     target[parts[-1]] = value
 
@@ -74,7 +74,8 @@ def serve(port, host, foreground):
             start_cleanup_timer()
 
     click.echo(f'vibefs serving on http://{host}:{port} (pid {os.getpid()})')
-    app.run(host=host, port=port, quiet=True)
+    from waitress import serve as waitress_serve
+    waitress_serve(app, host=host, port=port, _quiet=True)
 
 
 @cli.command()
@@ -91,6 +92,7 @@ def allow(path, ttl, port, host, head, tail, exclude):
     abs_path = os.path.abspath(path)
     cfg = load_config()
     base_url = cfg.get('base_url')
+    port = cfg.get('port', port)  # config overrides CLI default
 
     if os.path.isdir(abs_path):
         if head is not None or tail is not None:
@@ -138,15 +140,16 @@ def allow(path, ttl, port, host, head, tail, exclude):
 def allow_git(repo_path, commit_hash, ttl, port):
     """Authorize a git commit for viewing and print its URL."""
     ensure_state_dir()
+    cfg = load_config()
+    port = cfg.get('port', port)
     if ttl is None:
-        cfg = load_config()
         ttl = cfg.get('file_ttl', DEFAULT_TTL)
     try:
         token, is_new = add_git_authorization(repo_path, commit_hash, ttl)
     except ValueError as e:
         click.echo(str(e), err=True)
         sys.exit(1)
-    base_url = load_config().get('base_url')
+    base_url = cfg.get('base_url')
     if base_url:
         url = f'{base_url.rstrip("/")}/git/{token}'
     else:

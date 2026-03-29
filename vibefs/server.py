@@ -163,7 +163,7 @@ def verify_submit():
         bottle.abort(403, 'No password configured')
 
     submitted = bottle.request.forms.get('password', '')
-    if submitted == password:
+    if hmac.compare_digest(submitted, password):
         bottle.response.set_cookie('vibefs_auth', 'verified', secret=password, path='/', max_age=86400, httponly=True, samesite='Lax')
         bottle.redirect(next_url)
     else:
