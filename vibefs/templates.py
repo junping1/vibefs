@@ -649,6 +649,28 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
   .sidebar::-webkit-scrollbar {{ width: 6px; }}
   .sidebar::-webkit-scrollbar-track {{ background: transparent; }}
   .sidebar::-webkit-scrollbar-thumb {{ background: var(--border); border-radius: 3px; }}
+  .search-box {{
+    padding: 8px 8px 4px;
+    position: sticky;
+    top: 0;
+    background: var(--bg-sidebar);
+    z-index: 1;
+  }}
+  .search-box input {{
+    width: 100%;
+    padding: 5px 8px;
+    font-size: 12px;
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    outline: none;
+  }}
+  .search-box input:focus {{ border-color: var(--accent); }}
+  .search-box input::placeholder {{ color: var(--text-dim); }}
+  .tree-item.search-hidden {{ display: none; }}
+  .tree-group.search-force-open {{ display: block; }}
 
   .tree-item {{
     display: flex;
@@ -807,7 +829,10 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
     <span class="header-meta">expires in <span class="countdown" id="countdown"></span></span>
   </div>
   <div class="layout">
-    <nav class="sidebar" id="sidebar"></nav>
+    <nav class="sidebar" id="sidebar">
+      <div class="search-box"><input type="text" id="search" placeholder="Filter files\u2026" autocomplete="off" spellcheck="false"></div>
+      <div id="tree-container"></div>
+    </nav>
     <main class="preview" id="preview">
       <div class="preview-empty">Select a file to preview</div>
     </main>
@@ -861,6 +886,7 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
   }}
 
   var sidebar = document.getElementById('sidebar');
+  var treeContainer = document.getElementById('tree-container');
   function renderTree(node, container, depth) {{
     if (!node.children) return;
     node.children.forEach(function(child) {{
@@ -894,7 +920,57 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
     }});
   }}
 
-  renderTree(TREE, sidebar, 0);
+  renderTree(TREE, treeContainer, 0);
+
+  // File search/filter
+  var searchInput = document.getElementById('search');
+  searchInput.addEventListener('input', function() {{
+    var q = searchInput.value.toLowerCase().trim();
+    var items = treeContainer.querySelectorAll('.tree-item');
+    var groups = treeContainer.querySelectorAll('.tree-group');
+
+    if (!q) {{
+      // Reset: show all, collapse groups back
+      for (var i = 0; i < items.length; i++) items[i].classList.remove('search-hidden');
+      for (var i = 0; i < groups.length; i++) groups[i].classList.remove('search-force-open');
+      return;
+    }}
+
+    // First pass: hide all items, find matching files
+    var matchedGroups = new Set();
+    for (var i = 0; i < items.length; i++) {{
+      var item = items[i];
+      var nameEl = item.querySelector('.name');
+      if (!nameEl) continue;
+      var isFile = !!item.dataset.path;
+      if (isFile && nameEl.textContent.toLowerCase().indexOf(q) !== -1) {{
+        item.classList.remove('search-hidden');
+        // Reveal all parent groups
+        var parent = item.parentElement;
+        while (parent && parent !== treeContainer) {{
+          if (parent.classList.contains('tree-group')) matchedGroups.add(parent);
+          parent = parent.parentElement;
+        }}
+      }} else if (isFile) {{
+        item.classList.add('search-hidden');
+      }} else {{
+        // Directory items: will be shown/hidden based on children
+        item.classList.add('search-hidden');
+      }}
+    }}
+
+    // Second pass: show/open groups that contain matches
+    for (var i = 0; i < groups.length; i++) {{
+      if (matchedGroups.has(groups[i])) {{
+        groups[i].classList.add('search-force-open');
+        // Show the directory item before this group
+        var prev = groups[i].previousElementSibling;
+        if (prev && prev.classList.contains('tree-item')) prev.classList.remove('search-hidden');
+      }} else {{
+        groups[i].classList.remove('search-force-open');
+      }}
+    }}
+  }});
 
   function selectFile(relPath, el) {{
     if (currentFile === relPath) return;
@@ -949,7 +1025,7 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
 
   if (INITIAL_FILE) {{
     var parts = INITIAL_FILE.split('/');
-    var current = sidebar;
+    var current = treeContainer;
     for (var i = 0; i < parts.length - 1; i++) {{
       var items = current.querySelectorAll(':scope > .tree-item');
       for (var j = 0; j < items.length; j++) {{
@@ -965,7 +1041,7 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
         }}
       }}
     }}
-    var fileItems = sidebar.querySelectorAll('.tree-item[data-path]');
+    var fileItems = treeContainer.querySelectorAll('.tree-item[data-path]');
     for (var k = 0; k < fileItems.length; k++) {{
       if (fileItems[k].dataset.path === INITIAL_FILE) {{
         selectFile(INITIAL_FILE, fileItems[k]);

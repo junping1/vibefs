@@ -8,13 +8,17 @@ import time
 from .constants import DB_PATH, TOKEN_LENGTH, DIR_TOKEN_LENGTH
 
 
+_db_initialized = False
+
+
 def get_db_path():
     return os.environ.get('VIBEFS_DB', DB_PATH)
 
 
-def get_db():
-    db = sqlite3.connect(get_db_path())
-    db.row_factory = sqlite3.Row
+def _ensure_tables(db):
+    global _db_initialized
+    if _db_initialized:
+        return
     db.execute("""
         CREATE TABLE IF NOT EXISTS authorizations (
             token TEXT PRIMARY KEY,
@@ -44,6 +48,13 @@ def get_db():
         )
     """)
     db.commit()
+    _db_initialized = True
+
+
+def get_db():
+    db = sqlite3.connect(get_db_path())
+    db.row_factory = sqlite3.Row
+    _ensure_tables(db)
     return db
 
 
