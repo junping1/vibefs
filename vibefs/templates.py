@@ -993,6 +993,42 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
     if (!_cache[relPath] && !_inflight[relPath]) fetchFile(relPath);
   }}
 
+  function patchIframeLinks(iframe, currentRelPath) {{
+    // After iframe loads, intercept relative links to navigate within the directory browser
+    var iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    if (!iframeDoc) return;
+    var links = iframeDoc.querySelectorAll('a[href]');
+    var currentDir = currentRelPath.indexOf('/') !== -1 ? currentRelPath.substring(0, currentRelPath.lastIndexOf('/') + 1) : '';
+    for (var i = 0; i < links.length; i++) {{
+      (function(link) {{
+        var href = link.getAttribute('href');
+        if (!href || href.startsWith('http://') || href.startsWith('https://') || href.startsWith('#') || href.startsWith('mailto:')) return;
+        // Resolve relative path: strip leading ./
+        var resolved = href.replace(/^\\.\\//,  '');
+        // Resolve ../ segments
+        var parts = (currentDir + resolved).split('/');
+        var normalized = [];
+        for (var j = 0; j < parts.length; j++) {{
+          if (parts[j] === '..') {{ if (normalized.length) normalized.pop(); }}
+          else if (parts[j] && parts[j] !== '.') normalized.push(parts[j]);
+        }}
+        var targetPath = normalized.join('/');
+        link.style.cursor = 'pointer';
+        link.addEventListener('click', function(e) {{
+          e.preventDefault();
+          e.stopPropagation();
+          // Find and activate the sidebar item
+          var items = document.querySelectorAll('.tree-item[data-path]');
+          var targetEl = null;
+          for (var k = 0; k < items.length; k++) {{
+            if (items[k].dataset.path === targetPath) {{ targetEl = items[k]; break; }}
+          }}
+          selectFile(targetPath, targetEl);
+        }});
+      }})(links[i]);
+    }}
+  }}
+
   function renderPreview(data, relPath) {{
     var bc = '<div class="breadcrumb">' + breadcrumb(relPath) + '</div>';
     if (data.type === 'html') {{
@@ -1024,7 +1060,9 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
     if (_cache[relPath]) {{
       preview.innerHTML = renderPreview(_cache[relPath], relPath);
       if (_cache[relPath].type === 'html') {{
-        preview.querySelector('iframe').srcdoc = _cache[relPath].content;
+        var f = preview.querySelector('iframe');
+        f.srcdoc = _cache[relPath].content;
+        f.onload = function() {{ patchIframeLinks(f, relPath); }};
       }}
       return;
     }}
@@ -1036,7 +1074,9 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
         if (currentFile !== relPath) return; // user navigated away
         preview.innerHTML = renderPreview(data, relPath);
         if (data.type === 'html') {{
-          preview.querySelector('iframe').srcdoc = data.content;
+          var f2 = preview.querySelector('iframe');
+          f2.srcdoc = data.content;
+          f2.onload = function() {{ patchIframeLinks(f2, relPath); }};
         }}
       }})
       .catch(function(err) {{
