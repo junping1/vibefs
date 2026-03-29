@@ -1,3 +1,4 @@
+import hmac
 import json as json_mod
 import mimetypes
 import os
@@ -9,7 +10,7 @@ import threading
 import bottle
 
 from .config import load_config, get_owner_key
-from .constants import DEFAULT_TTL, DIR_DEFAULT_TTL
+from .constants import DEFAULT_TTL, DIR_DEFAULT_TTL, MAX_RENDER_SIZE
 from .db import (
     get_db, lookup_authorization, lookup_dir_authorization,
     lookup_git_authorization, get_git_commit_info, list_all_authorizations,
@@ -21,8 +22,8 @@ from .templates import (
     _dual_pygments_css,
 )
 from .utils import (
-    _display_path, _html_escape, is_safe_subpath,
-    walk_directory, get_file_type,
+    _display_path, _html_escape, _js_safe_json, _js_string_escape,
+    is_safe_subpath, walk_directory, get_file_type,
 )
 
 app = bottle.Bottle()
@@ -30,23 +31,50 @@ app = bottle.Bottle()
 
 # --- Rate limiting ---
 
-_rate_limits = defaultdict(list)
+_rate_limits = {}
 _rate_lock = threading.Lock()
+_rate_last_cleanup = time.time()
 RATE_LIMIT = 60
 RATE_WINDOW = 60
+RATE_CLEANUP_INTERVAL = 300  # purge stale IPs every 5 minutes
+
+
+def _get_client_ip():
+    """Get the real client IP, preferring CF-Connecting-IP (Cloudflare),
+    then the last entry in X-Forwarded-For (closest trusted proxy added it),
+    then falling back to remote_addr."""
+    cf_ip = bottle.request.environ.get('HTTP_CF_CONNECTING_IP')
+    if cf_ip:
+        return cf_ip.strip()
+    xff = bottle.request.environ.get('HTTP_X_FORWARDED_FOR')
+    if xff:
+        # Last entry is the one added by the closest trusted reverse proxy
+        return xff.split(',')[-1].strip()
+    return bottle.request.remote_addr
 
 
 @app.hook('before_request')
 def rate_limit():
-    ip = bottle.request.environ.get('HTTP_X_FORWARDED_FOR', bottle.request.remote_addr)
-    if ip:
-        ip = ip.split(',')[0].strip()
+    global _rate_last_cleanup
+    ip = _get_client_ip()
     now = time.time()
     with _rate_lock:
-        _rate_limits[ip] = [t for t in _rate_limits[ip] if now - t < RATE_WINDOW]
-        if len(_rate_limits[ip]) >= RATE_LIMIT:
+        # Periodic cleanup of stale IPs
+        if now - _rate_last_cleanup > RATE_CLEANUP_INTERVAL:
+            stale = [k for k, v in _rate_limits.items() if not v or v[-1] < now - RATE_WINDOW]
+            for k in stale:
+                del _rate_limits[k]
+            _rate_last_cleanup = now
+
+        entries = _rate_limits.get(ip)
+        if entries is not None:
+            _rate_limits[ip] = entries = [t for t in entries if now - t < RATE_WINDOW]
+        else:
+            entries = []
+            _rate_limits[ip] = entries
+        if len(entries) >= RATE_LIMIT:
             bottle.abort(429, 'Rate limit exceeded')
-        _rate_limits[ip].append(now)
+        entries.append(now)
 
 
 # --- Anti-crawler headers ---
@@ -77,32 +105,34 @@ def _check_owner_auth():
     return bottle.request.get_cookie('vibefs_owner', secret=owner_key) == 'owner'
 
 
+_ALLOWED_TABLES = {'authorizations', 'git_authorizations', 'dir_authorizations'}
+
+
+def _extend_expiry(table, token, ttl):
+    """Extend a token's expiry. Table name must be in the allowlist."""
+    if table not in _ALLOWED_TABLES:
+        raise ValueError(f'Invalid table: {table}')
+    db = get_db()
+    db.execute(f'UPDATE {table} SET expires_at = ? WHERE token = ?', (time.time() + ttl, token))
+    db.commit()
+    db.close()
+
+
 def _handle_expired(row, name_field, token, table='authorizations'):
     """Handle expired authorization. Returns response HTML or None if owner-authed."""
     cfg = load_config()
+    ttl = cfg.get('dir_default_ttl', DIR_DEFAULT_TTL) if table == 'dir_authorizations' else cfg.get('file_ttl', DEFAULT_TTL)
 
     # Owner cookie bypasses expiry
     if _check_owner_auth():
-        ttl = cfg.get('file_ttl', DEFAULT_TTL)
-        if table == 'dir_authorizations':
-            ttl = cfg.get('dir_default_ttl', DIR_DEFAULT_TTL)
-        db = get_db()
-        db.execute(f'UPDATE {table} SET expires_at = ? WHERE token = ?', (time.time() + ttl, token))
-        db.commit()
-        db.close()
-        return None  # Proceed to serve
+        _extend_expiry(table, token, ttl)
+        return None
 
     # Regular auth cookie (for backward compat with password config)
     password = cfg.get('password')
     if password and _check_expired_auth(password):
-        ttl = cfg.get('file_ttl', DEFAULT_TTL)
-        if table == 'dir_authorizations':
-            ttl = cfg.get('dir_default_ttl', DIR_DEFAULT_TTL)
-        db = get_db()
-        db.execute(f'UPDATE {table} SET expires_at = ? WHERE token = ?', (time.time() + ttl, token))
-        db.commit()
-        db.close()
-        return None  # Proceed to serve
+        _extend_expiry(table, token, ttl)
+        return None
 
     verify_url = f'/verify?next={bottle.request.path}' if password else ''
     return bottle.template(EXPIRED_TEMPLATE, filename=row[name_field], verify_url=verify_url)
@@ -134,7 +164,7 @@ def verify_submit():
 
     submitted = bottle.request.forms.get('password', '')
     if submitted == password:
-        bottle.response.set_cookie('vibefs_auth', 'verified', secret=password, path='/', max_age=86400)
+        bottle.response.set_cookie('vibefs_auth', 'verified', secret=password, path='/', max_age=86400, httponly=True, samesite='Lax')
         bottle.redirect(next_url)
     else:
         return bottle.template(EXPIRED_VERIFY_TEMPLATE, next=next_url, error='Incorrect password')
@@ -151,10 +181,10 @@ def owner_auth():
         next_url = '/dashboard'
 
     owner_key = get_owner_key()
-    if not key or key != owner_key:
+    if not key or not hmac.compare_digest(key, owner_key):
         bottle.abort(403, 'Invalid key')
 
-    bottle.response.set_cookie('vibefs_owner', 'owner', secret=owner_key, path='/', max_age=30 * 86400)
+    bottle.response.set_cookie('vibefs_owner', 'owner', secret=owner_key, path='/', max_age=30 * 86400, httponly=True, samesite='Lax')
     bottle.redirect(next_url)
 
 
@@ -166,8 +196,8 @@ def dashboard():
     key = bottle.request.query.get('key', '')
     if key:
         owner_key = get_owner_key()
-        if key == owner_key:
-            bottle.response.set_cookie('vibefs_owner', 'owner', secret=owner_key, path='/', max_age=30 * 86400)
+        if hmac.compare_digest(key, owner_key):
+            bottle.response.set_cookie('vibefs_owner', 'owner', secret=owner_key, path='/', max_age=30 * 86400, httponly=True, samesite='Lax')
         else:
             bottle.abort(403, 'Invalid key')
     elif not _check_owner_auth():
@@ -343,10 +373,10 @@ def serve_dir(token):
     return DIR_BROWSER_TEMPLATE.format(
         dirname=_html_escape(row['dirname']),
         token=token,
-        tree_json=json_mod.dumps(tree),
+        tree_json=_js_safe_json(tree),
         expires_at=f'{row["expires_at"]:.0f}',
         initial_file='',
-        base_path=base_path,
+        base_path=_js_string_escape(base_path),
     )
 
 
@@ -378,10 +408,10 @@ def serve_dir_file(token, filepath):
     return DIR_BROWSER_TEMPLATE.format(
         dirname=_html_escape(row['dirname']),
         token=token,
-        tree_json=json_mod.dumps(tree),
+        tree_json=_js_safe_json(tree),
         expires_at=f'{row["expires_at"]:.0f}',
-        initial_file=_html_escape(filepath),
-        base_path=base_path,
+        initial_file=_js_string_escape(filepath),
+        base_path=_js_string_escape(base_path),
     )
 
 
@@ -421,26 +451,27 @@ def dir_api_file(token):
     cfg = load_config()
     base_url = cfg.get('base_url', '').rstrip('/')
 
+    try:
+        file_size = os.path.getsize(abs_path)
+    except OSError:
+        file_size = 0
+
     if file_type == 'image':
         raw_url = f'{base_url}/d/{token}/raw?path={urllib.parse.quote(rel_path)}'
         bottle.response.content_type = 'application/json'
         return json_mod.dumps({'type': 'image', 'url': raw_url})
 
-    if file_type in ('code', 'markdown'):
+    if file_type in ('code', 'markdown') and file_size <= MAX_RENDER_SIZE:
         renderer = get_renderer(abs_path)
         html_content = renderer.render(abs_path)
         bottle.response.content_type = 'application/json'
         return json_mod.dumps({'type': 'html', 'content': html_content})
 
-    # Binary / unknown
+    # Binary / unknown / oversized text
     raw_url = f'{base_url}/d/{token}/raw?path={urllib.parse.quote(rel_path)}'
     filename = os.path.basename(abs_path)
-    try:
-        size = os.path.getsize(abs_path)
-    except OSError:
-        size = 0
     bottle.response.content_type = 'application/json'
-    return json_mod.dumps({'type': 'binary', 'filename': filename, 'size': size, 'url': raw_url})
+    return json_mod.dumps({'type': 'binary', 'filename': filename, 'size': file_size, 'url': raw_url})
 
 
 @app.route('/d/<token>/raw')
