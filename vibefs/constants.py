@@ -17,6 +17,24 @@ DB_PATH = os.path.join(STATE_DIR, 'vibefs.db')
 PID_PATH = os.path.join(STATE_DIR, 'vibefs.pid')
 LOG_PATH = os.path.join(STATE_DIR, 'vibefs.log')
 CONFIG_PATH = os.path.join(STATE_DIR, 'config.json')
+SHARES_DIR = os.path.join(STATE_DIR, 'shares')
+TUNNEL_URL_PATH = os.path.join(STATE_DIR, 'tunnel_url')
+
+SHARE_TYPE_MAP = {
+    'markdown': '.md',
+    'code': '.txt',
+    'diff': '.diff',
+    'text': '.txt',
+    'python': '.py',
+    'javascript': '.js',
+    'json': '.json',
+    'yaml': '.yaml',
+    'html': '.html',
+    'css': '.css',
+    'shell': '.sh',
+}
+
+MAX_SHARE_SIZE = 10 * 1024 * 1024  # 10 MB max for stdin shares
 
 
 def ensure_state_dir():

@@ -246,7 +246,67 @@ def serve_file(token, filename=None):
     tail = int(tail) if tail else None
 
     renderer = get_renderer(filepath)
-    return renderer.render(filepath, head=head, tail=tail)
+    html = renderer.render(filepath, head=head, tail=tail)
+    if row['live'] and isinstance(html, str) and '</body>' in html:
+        html = _inject_live_js(html, token)
+    return html
+
+
+# --- Live poll endpoint ---
+
+@app.route('/live/<token>/poll')
+def live_poll(token):
+    """Poll for file changes. Returns JSON {changed, mtime}."""
+    since = float(bottle.request.query.get('since', 0))
+
+    # Try file authorizations first, then dir
+    row, status = lookup_authorization(token)
+    if status == 'not_found':
+        row, status = lookup_dir_authorization(token)
+    if status == 'not_found':
+        bottle.abort(404, 'Not found')
+    if status == 'expired':
+        bottle.response.content_type = 'application/json'
+        return json_mod.dumps({'expired': True})
+
+    # Get the path to check
+    filepath = row['filepath'] if 'filepath' in row.keys() else row['dirpath']
+    if not filepath or not os.path.exists(filepath):
+        bottle.response.content_type = 'application/json'
+        return json_mod.dumps({'changed': False, 'mtime': 0, 'deleted': True})
+
+    try:
+        mtime = os.stat(filepath).st_mtime
+    except OSError:
+        mtime = 0
+
+    bottle.response.content_type = 'application/json'
+    bottle.response.headers['Cache-Control'] = 'no-cache'
+    return json_mod.dumps({'changed': mtime > since, 'mtime': mtime})
+
+
+def _inject_live_js(html, token):
+    """Inject live reload JavaScript before </body>."""
+    script = (
+        '<script>'
+        '(function(){'
+        'var mtime=0;'
+        'function poll(){'
+        'fetch("/live/' + token + '/poll?since="+mtime)'
+        '.then(function(r){return r.json()})'
+        '.then(function(d){'
+        'if(d.expired||d.deleted){clearInterval(iv);return}'
+        'if(d.changed){mtime=d.mtime;location.reload()}'
+        'else if(!mtime){mtime=d.mtime}'
+        '})'
+        '.catch(function(){});'
+        '}'
+        'var iv=setInterval(poll,2000);'
+        'poll();'
+        '})();'
+        '</script>'
+    )
+    return html.replace('</body>', script + '</body>')
 
 
 # --- Git serving (existing) ---
@@ -370,7 +430,7 @@ def serve_dir(token):
     base_path = cfg.get('base_url', '').rstrip('/')
 
     bottle.response.content_type = 'text/html; charset=utf-8'
-    return DIR_BROWSER_TEMPLATE.format(
+    html = DIR_BROWSER_TEMPLATE.format(
         dirname=_html_escape(row['dirname']),
         token=token,
         tree_json=_js_safe_json(tree),
@@ -378,6 +438,9 @@ def serve_dir(token):
         initial_file='',
         base_path=_js_string_escape(base_path),
     )
+    if row['live'] and '</body>' in html:
+        html = _inject_live_js(html, token)
+    return html
 
 
 # API routes MUST be defined before the catch-all <filepath:path> route
@@ -482,7 +545,7 @@ def serve_dir_file(token, filepath):
     base_path = cfg.get('base_url', '').rstrip('/')
 
     bottle.response.content_type = 'text/html; charset=utf-8'
-    return DIR_BROWSER_TEMPLATE.format(
+    html = DIR_BROWSER_TEMPLATE.format(
         dirname=_html_escape(row['dirname']),
         token=token,
         tree_json=_js_safe_json(tree),
@@ -490,3 +553,6 @@ def serve_dir_file(token, filepath):
         initial_file=_js_string_escape(filepath),
         base_path=_js_string_escape(base_path),
     )
+    if row['live'] and '</body>' in html:
+        html = _inject_live_js(html, token)
+    return html
