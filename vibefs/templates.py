@@ -915,6 +915,7 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
           e.stopPropagation();
           selectFile(child.rel_path, item);
         }};
+        item.onmouseenter = (function(p) {{ return function() {{ prefetch(p); }}; }})(child.rel_path);
         container.appendChild(item);
       }}
     }});
@@ -972,6 +973,40 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
     }}
   }});
 
+  // --- Prefetch cache ---
+  var _cache = {{}};       // relPath -> data (resolved)
+  var _inflight = {{}};    // relPath -> Promise (pending)
+  var API_BASE = BASE + '/d/' + TOKEN + '/api/file?path=';
+
+  function fetchFile(relPath) {{
+    if (_cache[relPath]) return Promise.resolve(_cache[relPath]);
+    if (_inflight[relPath]) return _inflight[relPath];
+    var p = fetch(API_BASE + encodeURIComponent(relPath))
+      .then(function(r) {{ if (!r.ok) throw new Error(r.status); return r.json(); }})
+      .then(function(data) {{ _cache[relPath] = data; delete _inflight[relPath]; return data; }})
+      .catch(function(err) {{ delete _inflight[relPath]; throw err; }});
+    _inflight[relPath] = p;
+    return p;
+  }}
+
+  function prefetch(relPath) {{
+    if (!_cache[relPath] && !_inflight[relPath]) fetchFile(relPath);
+  }}
+
+  function renderPreview(data, relPath) {{
+    var bc = '<div class="breadcrumb">' + breadcrumb(relPath) + '</div>';
+    if (data.type === 'html') {{
+      return bc + '<iframe class="preview-frame" sandbox="allow-same-origin" data-srcdoc></iframe>';
+    }} else if (data.type === 'image') {{
+      return bc + '<div class="preview-image"><img src="' + escHtml(data.url) + '" alt="' + escHtml(relPath) + '"></div>';
+    }} else {{
+      return bc + '<div class="preview-binary">'
+        + '<div class="filename">' + escHtml(data.filename) + '</div>'
+        + '<div>' + fmtSize(data.size) + '</div>'
+        + '<a class="dl-btn" href="' + escHtml(data.url) + '" download>Download</a></div>';
+    }}
+  }}
+
   function selectFile(relPath, el) {{
     if (currentFile === relPath) return;
     currentFile = relPath;
@@ -982,29 +1017,30 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
     document.getElementById('sidebar').classList.remove('mobile-open');
 
     var preview = document.getElementById('preview');
-    preview.innerHTML = '<div class="preview-loading">Loading\\u2026</div>';
-
     var newUrl = BASE + '/d/' + TOKEN + '/' + relPath;
     history.replaceState(null, '', newUrl);
 
-    fetch(BASE + '/d/' + TOKEN + '/api/file?path=' + encodeURIComponent(relPath))
-      .then(function(r) {{ if (!r.ok) throw new Error(r.status); return r.json(); }})
+    // Instant render if cached
+    if (_cache[relPath]) {{
+      preview.innerHTML = renderPreview(_cache[relPath], relPath);
+      if (_cache[relPath].type === 'html') {{
+        preview.querySelector('iframe').srcdoc = _cache[relPath].content;
+      }}
+      return;
+    }}
+
+    preview.innerHTML = '<div class="preview-loading">Loading\\u2026</div>';
+
+    fetchFile(relPath)
       .then(function(data) {{
-        var bc = '<div class="breadcrumb">' + breadcrumb(relPath) + '</div>';
+        if (currentFile !== relPath) return; // user navigated away
+        preview.innerHTML = renderPreview(data, relPath);
         if (data.type === 'html') {{
-          preview.innerHTML = bc + '<iframe class="preview-frame" sandbox="allow-same-origin"></iframe>';
-          var iframe = preview.querySelector('iframe');
-          iframe.srcdoc = data.content;
-        }} else if (data.type === 'image') {{
-          preview.innerHTML = bc + '<div class="preview-image"><img src="' + escHtml(data.url) + '" alt="' + escHtml(relPath) + '"></div>';
-        }} else {{
-          preview.innerHTML = bc + '<div class="preview-binary">'
-            + '<div class="filename">' + escHtml(data.filename) + '</div>'
-            + '<div>' + fmtSize(data.size) + '</div>'
-            + '<a class="dl-btn" href="' + escHtml(data.url) + '" download>Download</a></div>';
+          preview.querySelector('iframe').srcdoc = data.content;
         }}
       }})
       .catch(function(err) {{
+        if (currentFile !== relPath) return;
         preview.innerHTML = '<div class="preview-empty">Failed to load: ' + escHtml(relPath) + '</div>';
       }});
   }}
