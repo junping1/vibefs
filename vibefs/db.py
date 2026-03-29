@@ -25,7 +25,8 @@ def _ensure_tables(db):
             filepath TEXT NOT NULL,
             filename TEXT NOT NULL,
             created_at REAL NOT NULL,
-            expires_at REAL NOT NULL
+            expires_at REAL NOT NULL,
+            live INTEGER NOT NULL DEFAULT 0
         )
     """)
     db.execute("""
@@ -44,9 +45,16 @@ def _ensure_tables(db):
             dirname TEXT NOT NULL,
             excludes TEXT NOT NULL,
             created_at REAL NOT NULL,
-            expires_at REAL NOT NULL
+            expires_at REAL NOT NULL,
+            live INTEGER NOT NULL DEFAULT 0
         )
     """)
+    # Migrate: add live column if missing (existing databases)
+    for table in ('authorizations', 'dir_authorizations'):
+        try:
+            db.execute(f'ALTER TABLE {table} ADD COLUMN live INTEGER NOT NULL DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass  # column already exists
     db.commit()
     _db_initialized = True
 
@@ -58,7 +66,7 @@ def get_db():
     return db
 
 
-def add_authorization(filepath, ttl):
+def add_authorization(filepath, ttl, live=False):
     """Add an authorization record and return (token, filename, is_new)."""
     abs_path = os.path.abspath(filepath)
     if not os.path.isfile(abs_path):
@@ -76,8 +84,8 @@ def add_authorization(filepath, ttl):
     if row:
         token = row['token']
         db.execute(
-            'UPDATE authorizations SET expires_at = ? WHERE token = ?',
-            (now + ttl, token),
+            'UPDATE authorizations SET expires_at = ?, live = ? WHERE token = ?',
+            (now + ttl, int(live), token),
         )
         db.commit()
         db.close()
@@ -85,8 +93,8 @@ def add_authorization(filepath, ttl):
     else:
         token = secrets.token_hex(TOKEN_LENGTH)
         db.execute(
-            'INSERT INTO authorizations (token, filepath, filename, created_at, expires_at) VALUES (?, ?, ?, ?, ?)',
-            (token, abs_path, filename, now, now + ttl),
+            'INSERT INTO authorizations (token, filepath, filename, created_at, expires_at, live) VALUES (?, ?, ?, ?, ?, ?)',
+            (token, abs_path, filename, now, now + ttl, int(live)),
         )
         db.commit()
         db.close()
@@ -117,7 +125,7 @@ def lookup_authorization(token):
     """Look up a token. Returns (row, status) where status is 'valid', 'expired', or 'not_found'."""
     db = get_db()
     row = db.execute(
-        'SELECT token, filepath, filename, created_at, expires_at FROM authorizations WHERE token = ?',
+        'SELECT token, filepath, filename, created_at, expires_at, live FROM authorizations WHERE token = ?',
         (token,),
     ).fetchone()
     db.close()
@@ -260,7 +268,7 @@ def get_git_commit_info(repo_path, commit_hash):
     return info
 
 
-def add_dir_authorization(dirpath, ttl, excludes):
+def add_dir_authorization(dirpath, ttl, excludes, live=False):
     """Add a directory authorization record and return (token, dirname, is_new)."""
     abs_path = os.path.abspath(dirpath)
     if not os.path.isdir(abs_path):
@@ -279,8 +287,8 @@ def add_dir_authorization(dirpath, ttl, excludes):
     if row:
         token = row['token']
         db.execute(
-            'UPDATE dir_authorizations SET expires_at = ?, excludes = ? WHERE token = ?',
-            (now + ttl, excludes_json, token),
+            'UPDATE dir_authorizations SET expires_at = ?, excludes = ?, live = ? WHERE token = ?',
+            (now + ttl, excludes_json, int(live), token),
         )
         db.commit()
         db.close()
@@ -288,8 +296,8 @@ def add_dir_authorization(dirpath, ttl, excludes):
     else:
         token = secrets.token_hex(DIR_TOKEN_LENGTH)
         db.execute(
-            'INSERT INTO dir_authorizations (token, dirpath, dirname, excludes, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
-            (token, abs_path, dirname, excludes_json, now, now + ttl),
+            'INSERT INTO dir_authorizations (token, dirpath, dirname, excludes, created_at, expires_at, live) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (token, abs_path, dirname, excludes_json, now, now + ttl, int(live)),
         )
         db.commit()
         db.close()
@@ -300,7 +308,7 @@ def lookup_dir_authorization(token):
     """Look up a directory token. Returns (row, status)."""
     db = get_db()
     row = db.execute(
-        'SELECT token, dirpath, dirname, excludes, created_at, expires_at FROM dir_authorizations WHERE token = ?',
+        'SELECT token, dirpath, dirname, excludes, created_at, expires_at, live FROM dir_authorizations WHERE token = ?',
         (token,),
     ).fetchone()
     db.close()
@@ -343,3 +351,23 @@ def list_all_authorizations():
     results.sort(key=lambda x: x['created_at'], reverse=True)
     db.close()
     return results
+
+
+def cleanup_expired_shares():
+    """Delete temp share files whose authorizations have expired."""
+    from .constants import SHARES_DIR
+    if not os.path.isdir(SHARES_DIR):
+        return
+    db = get_db()
+    now = time.time()
+    rows = db.execute(
+        'SELECT token, filepath FROM authorizations WHERE filepath LIKE ? AND expires_at < ?',
+        (SHARES_DIR + '%', now),
+    ).fetchall()
+    for row in rows:
+        filepath = row['filepath']
+        if os.path.isfile(filepath):
+            os.remove(filepath)
+        db.execute('DELETE FROM authorizations WHERE token = ?', (row['token'],))
+    db.commit()
+    db.close()
