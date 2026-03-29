@@ -1043,7 +1043,57 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
     }}
   }}
 
+  // Check if a relPath corresponds to a directory in the tree
+  function findTreeNode(relPath) {{
+    if (!relPath) return TREE;
+    var parts = relPath.split('/');
+    var node = TREE;
+    for (var i = 0; i < parts.length; i++) {{
+      var found = false;
+      for (var j = 0; j < (node.children || []).length; j++) {{
+        if (node.children[j].name === parts[i]) {{
+          node = node.children[j];
+          found = true;
+          break;
+        }}
+      }}
+      if (!found) return null;
+    }}
+    return node;
+  }}
+
+  // Expand a directory in the sidebar tree by rel_path
+  function expandDir(relPath) {{
+    var parts = relPath.split('/');
+    var current = treeContainer;
+    for (var i = 0; i < parts.length; i++) {{
+      var items = current.querySelectorAll(':scope > .tree-item');
+      for (var j = 0; j < items.length; j++) {{
+        var nameEl = items[j].querySelector('.name');
+        if (nameEl && nameEl.textContent === parts[i]) {{
+          var group = items[j].nextElementSibling;
+          if (group && group.classList.contains('tree-group')) {{
+            group.classList.add('open');
+            items[j].querySelector('.icon').textContent = '\\u25bc';
+            current = group;
+          }}
+          break;
+        }}
+      }}
+    }}
+    // Scroll the last matched item into view
+    var lastItems = current.querySelectorAll(':scope > .tree-item');
+    if (lastItems.length > 0) lastItems[0].scrollIntoView({{ block: 'center' }});
+  }}
+
   function selectFile(relPath, el) {{
+    // If relPath is a directory, expand it in the tree instead
+    var node = findTreeNode(relPath);
+    if (node && node.is_dir) {{
+      expandDir(relPath);
+      return;
+    }}
+
     if (currentFile === relPath) return;
     currentFile = relPath;
 
@@ -1054,7 +1104,7 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
 
     var preview = document.getElementById('preview');
     var newUrl = BASE + '/d/' + TOKEN + '/' + relPath;
-    history.replaceState(null, '', newUrl);
+    history.pushState({{ file: relPath }}, '', newUrl);
 
     // Instant render if cached
     if (_cache[relPath]) {{
@@ -1099,33 +1149,45 @@ DIR_BROWSER_TEMPLATE = """<!DOCTYPE html>
     document.getElementById('sidebar').classList.toggle('mobile-open');
   }};
 
-  if (INITIAL_FILE) {{
-    var parts = INITIAL_FILE.split('/');
-    var current = treeContainer;
-    for (var i = 0; i < parts.length - 1; i++) {{
-      var items = current.querySelectorAll(':scope > .tree-item');
-      for (var j = 0; j < items.length; j++) {{
-        var nameEl = items[j].querySelector('.name');
-        if (nameEl && nameEl.textContent === parts[i]) {{
-          var group = items[j].nextElementSibling;
-          if (group && group.classList.contains('tree-group')) {{
-            group.classList.add('open');
-            items[j].querySelector('.icon').textContent = '\\u25bc';
-            current = group;
-          }}
-          break;
-        }}
-      }}
+  // Navigate to a file by path — expand parent dirs, select and scroll
+  function navigateToFile(relPath) {{
+    if (!relPath) return;
+    var parts = relPath.split('/');
+    // Expand parent directories
+    if (parts.length > 1) {{
+      expandDir(parts.slice(0, -1).join('/'));
     }}
+    // Find and select the file item
     var fileItems = treeContainer.querySelectorAll('.tree-item[data-path]');
     for (var k = 0; k < fileItems.length; k++) {{
-      if (fileItems[k].dataset.path === INITIAL_FILE) {{
-        selectFile(INITIAL_FILE, fileItems[k]);
+      if (fileItems[k].dataset.path === relPath) {{
+        selectFile(relPath, fileItems[k]);
         fileItems[k].scrollIntoView({{ block: 'center' }});
-        break;
+        return;
       }}
     }}
+    // File not found in tree — might be a subdir, try expanding
+    var node = findTreeNode(relPath);
+    if (node && node.is_dir) expandDir(relPath);
   }}
+
+  // Restore from URL on initial load
+  if (INITIAL_FILE) {{
+    navigateToFile(INITIAL_FILE);
+  }}
+
+  // Handle browser back/forward
+  window.addEventListener('popstate', function() {{
+    var prefix = BASE + '/d/' + TOKEN + '/';
+    var path = window.location.pathname;
+    if (path.indexOf(prefix) === 0) {{
+      var relPath = decodeURIComponent(path.substring(prefix.length));
+      if (relPath) {{
+        currentFile = ''; // reset so selectFile doesn't skip
+        navigateToFile(relPath);
+      }}
+    }}
+  }});
 }})();
 </script>
 </body>
