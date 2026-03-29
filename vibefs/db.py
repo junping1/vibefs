@@ -5,7 +5,11 @@ import sqlite3
 import subprocess
 import time
 
-from .constants import DB_PATH, TOKEN_LENGTH, DIR_TOKEN_LENGTH
+from .constants import (
+    DB_PATH, TOKEN_LENGTH, DIR_TOKEN_LENGTH,
+    STATUS_VALID, STATUS_EXPIRED, STATUS_NOT_FOUND, STATUS_ACTIVE,
+    TIME_FORMAT,
+)
 
 
 _db_initialized = False
@@ -66,6 +70,78 @@ def get_db():
     return db
 
 
+# --- Generic helpers to deduplicate authorization patterns ---
+
+def _add_or_extend(table, key_column, key_value, token_length, fields, ttl):
+    """Generic add-or-extend for any authorization table.
+
+    Args:
+        table: Table name (must be a known table).
+        key_column: Column to check for existing record (e.g. 'filepath', 'dirpath').
+        key_value: Value of the key column (absolute path).
+        token_length: Number of bytes for token generation.
+        fields: Dict of column->value pairs for INSERT (excluding token, created_at, expires_at).
+        ttl: Time-to-live in seconds.
+
+    Returns:
+        (token, is_new) — token string and whether a new record was created.
+    """
+    now = time.time()
+    db = get_db()
+    row = db.execute(
+        f'SELECT token FROM {table} WHERE {key_column} = ? AND expires_at > ?',
+        (key_value, now),
+    ).fetchone()
+
+    if row:
+        token = row['token']
+        # Build SET clause from fields that should be updated
+        update_fields = {k: v for k, v in fields.items() if k not in (key_column,)}
+        update_fields['expires_at'] = now + ttl
+        set_clause = ', '.join(f'{k} = ?' for k in update_fields)
+        values = list(update_fields.values()) + [token]
+        db.execute(f'UPDATE {table} SET {set_clause} WHERE token = ?', values)
+        db.commit()
+        db.close()
+        return token, False
+    else:
+        token = secrets.token_hex(token_length)
+        all_fields = {'token': token, **fields, 'created_at': now, 'expires_at': now + ttl}
+        columns = ', '.join(all_fields.keys())
+        placeholders = ', '.join('?' for _ in all_fields)
+        db.execute(f'INSERT INTO {table} ({columns}) VALUES ({placeholders})', list(all_fields.values()))
+        db.commit()
+        db.close()
+        return token, True
+
+
+def _lookup(table, columns, token):
+    """Generic lookup returning (row, status).
+
+    Args:
+        table: Table name.
+        columns: Comma-separated column names to SELECT.
+        token: Token to look up.
+
+    Returns:
+        (row, status) where status is STATUS_VALID, STATUS_EXPIRED, or STATUS_NOT_FOUND.
+    """
+    db = get_db()
+    row = db.execute(
+        f'SELECT {columns} FROM {table} WHERE token = ?',
+        (token,),
+    ).fetchone()
+    db.close()
+
+    if row is None:
+        return None, STATUS_NOT_FOUND
+    if time.time() > row['expires_at']:
+        return row, STATUS_EXPIRED
+    return row, STATUS_VALID
+
+
+# --- File authorizations ---
+
 def add_authorization(filepath, ttl, live=False):
     """Add an authorization record and return (token, filename, is_new)."""
     abs_path = os.path.abspath(filepath)
@@ -73,32 +149,12 @@ def add_authorization(filepath, ttl, live=False):
         raise FileNotFoundError(f'File not found: {abs_path}')
 
     filename = os.path.basename(abs_path)
-    now = time.time()
-
-    db = get_db()
-    row = db.execute(
-        'SELECT token FROM authorizations WHERE filepath = ? AND expires_at > ?',
-        (abs_path, now),
-    ).fetchone()
-
-    if row:
-        token = row['token']
-        db.execute(
-            'UPDATE authorizations SET expires_at = ?, live = ? WHERE token = ?',
-            (now + ttl, int(live), token),
-        )
-        db.commit()
-        db.close()
-        return token, filename, False
-    else:
-        token = secrets.token_hex(TOKEN_LENGTH)
-        db.execute(
-            'INSERT INTO authorizations (token, filepath, filename, created_at, expires_at, live) VALUES (?, ?, ?, ?, ?, ?)',
-            (token, abs_path, filename, now, now + ttl, int(live)),
-        )
-        db.commit()
-        db.close()
-        return token, filename, True
+    token, is_new = _add_or_extend(
+        'authorizations', 'filepath', abs_path, TOKEN_LENGTH,
+        {'filepath': abs_path, 'filename': filename, 'live': int(live)},
+        ttl,
+    )
+    return token, filename, is_new
 
 
 def remove_authorization(token):
@@ -122,19 +178,8 @@ def list_authorizations():
 
 
 def lookup_authorization(token):
-    """Look up a token. Returns (row, status) where status is 'valid', 'expired', or 'not_found'."""
-    db = get_db()
-    row = db.execute(
-        'SELECT token, filepath, filename, created_at, expires_at, live FROM authorizations WHERE token = ?',
-        (token,),
-    ).fetchone()
-    db.close()
-
-    if row is None:
-        return None, 'not_found'
-    if time.time() > row['expires_at']:
-        return row, 'expired'
-    return row, 'valid'
+    """Look up a token. Returns (row, status) where status is STATUS_VALID, STATUS_EXPIRED, or STATUS_NOT_FOUND."""
+    return _lookup('authorizations', 'token, filepath, filename, created_at, expires_at, live', token)
 
 
 def has_active_authorizations():
@@ -157,12 +202,15 @@ def has_active_authorizations():
     return (file_cnt + git_cnt + dir_cnt) > 0
 
 
+# --- Git authorizations ---
+
 def add_git_authorization(repo_path, commit_hash, ttl):
     """Add a git commit authorization record and return (token, is_new)."""
     abs_repo = os.path.abspath(repo_path)
     if not os.path.isdir(os.path.join(abs_repo, '.git')):
         raise ValueError(f'Not a git repository: {abs_repo}')
 
+    # For git, we use a composite key check (repo_path + commit_hash)
     now = time.time()
     db = get_db()
     row = db.execute(
@@ -192,18 +240,7 @@ def add_git_authorization(repo_path, commit_hash, ttl):
 
 def lookup_git_authorization(token):
     """Look up a git token. Returns (row, status)."""
-    db = get_db()
-    row = db.execute(
-        'SELECT token, repo_path, commit_hash, created_at, expires_at FROM git_authorizations WHERE token = ?',
-        (token,),
-    ).fetchone()
-    db.close()
-
-    if row is None:
-        return None, 'not_found'
-    if time.time() > row['expires_at']:
-        return row, 'expired'
-    return row, 'valid'
+    return _lookup('git_authorizations', 'token, repo_path, commit_hash, created_at, expires_at', token)
 
 
 def get_git_commit_info(repo_path, commit_hash):
@@ -268,6 +305,8 @@ def get_git_commit_info(repo_path, commit_hash):
     return info
 
 
+# --- Directory authorizations ---
+
 def add_dir_authorization(dirpath, ttl, excludes, live=False):
     """Add a directory authorization record and return (token, dirname, is_new)."""
     abs_path = os.path.abspath(dirpath)
@@ -275,49 +314,19 @@ def add_dir_authorization(dirpath, ttl, excludes, live=False):
         raise FileNotFoundError(f'Directory not found: {abs_path}')
 
     dirname = os.path.basename(abs_path)
-    now = time.time()
     excludes_json = json.dumps(excludes)
 
-    db = get_db()
-    row = db.execute(
-        'SELECT token FROM dir_authorizations WHERE dirpath = ? AND expires_at > ?',
-        (abs_path, now),
-    ).fetchone()
-
-    if row:
-        token = row['token']
-        db.execute(
-            'UPDATE dir_authorizations SET expires_at = ?, excludes = ?, live = ? WHERE token = ?',
-            (now + ttl, excludes_json, int(live), token),
-        )
-        db.commit()
-        db.close()
-        return token, dirname, False
-    else:
-        token = secrets.token_hex(DIR_TOKEN_LENGTH)
-        db.execute(
-            'INSERT INTO dir_authorizations (token, dirpath, dirname, excludes, created_at, expires_at, live) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            (token, abs_path, dirname, excludes_json, now, now + ttl, int(live)),
-        )
-        db.commit()
-        db.close()
-        return token, dirname, True
+    token, is_new = _add_or_extend(
+        'dir_authorizations', 'dirpath', abs_path, DIR_TOKEN_LENGTH,
+        {'dirpath': abs_path, 'dirname': dirname, 'excludes': excludes_json, 'live': int(live)},
+        ttl,
+    )
+    return token, dirname, is_new
 
 
 def lookup_dir_authorization(token):
     """Look up a directory token. Returns (row, status)."""
-    db = get_db()
-    row = db.execute(
-        'SELECT token, dirpath, dirname, excludes, created_at, expires_at, live FROM dir_authorizations WHERE token = ?',
-        (token,),
-    ).fetchone()
-    db.close()
-
-    if row is None:
-        return None, 'not_found'
-    if time.time() > row['expires_at']:
-        return row, 'expired'
-    return row, 'valid'
+    return _lookup('dir_authorizations', 'token, dirpath, dirname, excludes, created_at, expires_at, live', token)
 
 
 def list_dir_authorizations():
@@ -338,15 +347,18 @@ def list_all_authorizations():
 
     for row in db.execute('SELECT token, filepath, filename, created_at, expires_at FROM authorizations ORDER BY created_at DESC').fetchall():
         results.append({'type': 'file', 'token': row['token'], 'path': row['filepath'], 'name': row['filename'],
-                        'created_at': row['created_at'], 'expires_at': row['expires_at'], 'status': 'active' if row['expires_at'] > now else 'expired'})
+                        'created_at': row['created_at'], 'expires_at': row['expires_at'],
+                        'status': STATUS_ACTIVE if row['expires_at'] > now else STATUS_EXPIRED})
 
     for row in db.execute('SELECT token, repo_path, commit_hash, created_at, expires_at FROM git_authorizations ORDER BY created_at DESC').fetchall():
         results.append({'type': 'git', 'token': row['token'], 'path': row['repo_path'], 'name': row['commit_hash'][:12],
-                        'created_at': row['created_at'], 'expires_at': row['expires_at'], 'status': 'active' if row['expires_at'] > now else 'expired'})
+                        'created_at': row['created_at'], 'expires_at': row['expires_at'],
+                        'status': STATUS_ACTIVE if row['expires_at'] > now else STATUS_EXPIRED})
 
     for row in db.execute('SELECT token, dirpath, dirname, created_at, expires_at FROM dir_authorizations ORDER BY created_at DESC').fetchall():
         results.append({'type': 'dir', 'token': row['token'], 'path': row['dirpath'], 'name': row['dirname'],
-                        'created_at': row['created_at'], 'expires_at': row['expires_at'], 'status': 'active' if row['expires_at'] > now else 'expired'})
+                        'created_at': row['created_at'], 'expires_at': row['expires_at'],
+                        'status': STATUS_ACTIVE if row['expires_at'] > now else STATUS_EXPIRED})
 
     results.sort(key=lambda x: x['created_at'], reverse=True)
     db.close()
