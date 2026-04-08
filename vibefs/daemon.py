@@ -9,7 +9,7 @@ import click
 
 from .constants import CLEANUP_INTERVAL, DEFAULT_HOST, LOG_PATH, PID_PATH, ensure_state_dir
 from .config import load_config
-from .db import has_active_authorizations
+from .db import has_active_authorizations, cleanup_expired_shares
 
 
 def read_pid():
@@ -88,6 +88,7 @@ def start_cleanup_timer():
     def check_loop():
         while True:
             time.sleep(CLEANUP_INTERVAL)
+            cleanup_expired_shares()
             if not has_active_authorizations():
                 click.echo('All authorizations expired, shutting down.', err=True)
                 remove_pid()

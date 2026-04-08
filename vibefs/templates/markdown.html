@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}{{ display_path }}{% endblock %}
+
+{% block css_vars_dark %}
+    --bg-secondary: #161b22;
+    --text-body: #c9d1d9;
+    --code-bg: #1f2428;
+    --code-color: #f0883e;
+{% endblock %}
+
+{% block css_vars_light %}
+    --bg-secondary: #f6f8fa;
+    --text-body: #1f2328;
+    --code-bg: #eff1f3;
+    --code-color: #cf222e;
+{% endblock %}
+
+{% block extra_css %}
+  :root {
+    --bg: #0d1117;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #ffffff;
+    }
+  }
+  html { overflow-x: hidden; }
+  body {
+    font-weight: 400;
+    font-synthesis: none;
+    overflow-x: hidden;
+  }
+  .markdown-body {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 40px 24px 32px;
+    line-height: 1.7;
+  }
+  .markdown-body h1, .markdown-body h2, .markdown-body h3,
+  .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+    color: var(--text);
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 24px;
+    margin-bottom: 12px;
+  }
+  .markdown-body h1 { font-size: 2em; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .markdown-body h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .markdown-body h3 { font-size: 1.25em; }
+  .markdown-body p { margin-bottom: 16px; color: var(--text-body); }
+  .markdown-body a { color: var(--link); text-decoration: none; }
+  .markdown-body a:hover { text-decoration: underline; }
+  .markdown-body strong { color: var(--text); font-weight: 600; }
+  .markdown-body em { color: var(--text-body); }
+  .markdown-body ul, .markdown-body ol {
+    padding-left: 2em;
+    margin-bottom: 16px;
+    color: var(--text-body);
+  }
+  .markdown-body li { margin-bottom: 4px; }
+  .markdown-body li input[type="checkbox"] { margin-right: 6px; }
+  .markdown-body blockquote {
+    border-left: 4px solid var(--border);
+    padding: 4px 16px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+  }
+  .markdown-body hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 24px 0;
+  }
+  .table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    margin-bottom: 16px;
+  }
+  .markdown-body table {
+    border-collapse: collapse;
+    min-width: 100%;
+    font-size: 14px;
+    margin-bottom: 0;
+  }
+  .markdown-body th {
+    background: var(--bg-secondary);
+    color: var(--text);
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    text-align: left;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .markdown-body td {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    color: var(--text-body);
+  }
+  .markdown-body tr:nth-child(even) td { background: var(--bg-secondary); }
+  .markdown-body code {
+    font-family: var(--font-mono);
+    font-size: 85%;
+    background: var(--code-bg);
+    color: var(--code-color);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .markdown-body pre {
+    margin-bottom: 16px;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .markdown-body pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+    font-size: 14px;
+  }
+  {{ pygments_css|safe }}
+  .highlight {
+    background: var(--bg-secondary) !important;
+    margin: 0;
+    border-radius: 0;
+  }
+  .highlight pre {
+    padding: 16px;
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--text);
+  }
+  .file-footer {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 16px 24px 32px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .file-footer-path {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+  }
+  .file-footer-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    opacity: 0.6;
+  }
+  @media (max-width: 768px) {
+    .markdown-body { padding: 24px 16px 24px; }
+    .markdown-body h1 { font-size: 1.6em; }
+    .markdown-body h2 { font-size: 1.3em; }
+    .file-footer { padding: 12px 16px 24px; }
+  }
+{% endblock %}
+
+{% block body %}
+  <div class="markdown-body">
+    {{ body_html|safe }}
+  </div>
+  <footer class="file-footer">
+    <span class="file-footer-path">{{ display_path }}</span>
+    <span class="file-footer-meta">{{ file_meta }}</span>
+  </footer>
+{% endblock %}

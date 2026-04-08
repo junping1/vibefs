@@ -21,9 +21,11 @@ classifiers = [
 dependencies = [
     "bottle>=0.13.4",
     "click>=8.3.1",
+    "jinja2>=3.1.0",
     "pygments>=2.19.2",
     "markdown-it-py[linkify]>=4.0.0",
     "mdit-py-plugins>=0.5.0",
+    "waitress>=3.0.0",
 ]
 
 [project.urls]
@@ -32,6 +34,12 @@ Repository = "https://github.com/junping1/vibefs"
 
 [project.scripts]
 vibefs = "vibefs:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vibefs"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"vibefs/templates" = "vibefs/templates"
 
 [build-system]
 requires = ["hatchling"]
