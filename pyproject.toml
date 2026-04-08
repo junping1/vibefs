@@ -1,7 +1,7 @@
 [project]
 name = "vibefs"
-version = "0.7.0"
-description = "A simple, secure file preview service with time-limited URLs"
+version = "1.0.0"
+description = "File and directory preview server with time-limited URLs, designed for AI agents"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

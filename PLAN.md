@@ -1,113 +1,109 @@
-# vibefs — Vibe File Server
+# vibefs — Architecture
 
-A simple, secure file preview service designed for AI agents to share files with users via time-limited URLs.
-
-## Concept
-
-Agents often need to show files to users. vibefs provides a lightweight web server where files must be explicitly authorized before they can be accessed, with automatic expiration.
+A file and directory preview service with time-limited URLs, designed for AI agents to share local files with users.
 
 ## Architecture
 
-- **Single-file core**: All logic lives in one Python file (`vibefs.py`) for maximum portability
-- **CLI**: click-based, subcommands for serving and authorizing
-- **Web**: Bottle (zero-dependency micro framework)
-- **Storage**: SQLite (Python built-in), stores authorization records
+- **Package structure**: `vibefs/` with separate modules for CLI, server, DB, rendering, config, and utilities
+- **CLI**: Click-based, subcommands for sharing, managing, and serving
+- **Web**: Bottle + Waitress (production WSGI server)
+- **Templating**: Jinja2 templates in `vibefs/templates/`
+- **Storage**: SQLite via `~/.vibefs/vibefs.db`
+- **Syntax highlighting**: Pygments with dual dark/light theme support
 
 ## Commands
 
 ```
-vibefs allow <path> [--ttl 3600]                # Authorize a file, auto-start daemon if needed, output access URL
-vibefs revoke <token>                           # Revoke access to a file
-vibefs list                                     # List currently authorized files
-vibefs serve [--port 8080] [--host 0.0.0.0]    # Manually start server in foreground (for debugging)
-vibefs stop                                     # Manually stop the daemon
-vibefs status                                   # Check if daemon is running
+vibefs allow <path> [--ttl N] [--live] [--json]       Share a file or directory
+vibefs share [--type T] [--content C] [--title T]     Share content from stdin
+vibefs allow-git <repo> <hash> [--ttl N] [--json]     Share a git commit
+vibefs revoke <token>                                  Revoke a share
+vibefs list [--json]                                   List all shares
+vibefs serve [--port N] [--host H] [--tunnel]          Start server
+vibefs stop                                            Stop daemon
+vibefs status [--json]                                 Check daemon status
+vibefs owner-url                                       Print dashboard URL
+vibefs config set <key> <value>                        Set config
+vibefs config get <key>                                Get config
 ```
 
 ## URL Format
 
 ```
-http://localhost:8080/f/{short_hash}/{filename}
+http://host:port/f/{token}          # file share (8 hex char token)
+http://host:port/d/{token}          # directory share (12 hex char token)
+http://host:port/d/{token}/path     # deep link to file within directory
+http://host:port/git/{token}        # git commit share
+http://host:port/dashboard          # owner dashboard (32 hex char key)
 ```
 
-- `short_hash`: 6-8 char random token, not derived from path (no path leakage)
-- `filename`: original filename for readability (e.g. `report.txt`)
-- Full filesystem path is never exposed
+## Rendering
 
-## Flow
+- **Code**: Pygments syntax highlighting (50+ extensions), configurable style and line numbers
+- **Markdown**: markdown-it with GFM, task lists, fenced code highlighting, table wrapping, theme/font controls
+- **CSV/TSV**: Parsed and rendered as styled HTML tables
+- **PDF**: Browser's native viewer
+- **SVG**: Inline rendering
+- **Audio/Video**: HTML5 players (base64 data URI for <50MB, raw download for larger)
+- **Images**: Inline with correct MIME type
+- **Git commits**: Metadata + expandable file diffs with syntax highlighting
+- **Directories**: Sidebar file tree + preview pane (Jinja2 template with JS)
 
-1. Agent runs `vibefs allow /home/user/projects/output/report.txt`
-2. vibefs generates a short token, stores `{token, filepath, filename, created_at, expires_at}` in SQLite
-3. Checks if daemon is running (via PID file):
-   - Not running → fork a background daemon process that starts the Bottle server
-   - Already running → skip
-4. Outputs: `http://localhost:8080/f/a3b7c2/report.txt`
-5. User clicks link → vibefs checks token in SQLite:
-   - Valid & not expired → read file, return content with appropriate content-type
-   - Expired → show "This file is no longer available" page
-   - Unknown token → 404
-6. Default TTL: 1 hour, configurable via `--ttl` (seconds)
+## Security Model
 
-## Daemon Architecture
-
-The server runs as an implicit, on-demand daemon — no manual `serve` required.
-
-### Auto-start
-- `allow` command checks PID file (`~/.vibefs/vibefs.pid`) to see if daemon is alive
-- If not running, forks a background daemon process (double-fork or `subprocess` detach)
-- Daemon writes its PID to the PID file on startup
-
-### Auto-stop (self-cleanup)
-- Daemon runs a background check every 60 seconds
-- On each check: query SQLite for any non-expired authorizations
-- If ALL authorizations have expired → daemon exits gracefully, removes PID file
-- This ensures the server only runs when there are active files to serve
-
-### State directory: `~/.vibefs/`
-- `~/.vibefs/vibefs.db` — SQLite database (always use this path, not cwd)
-- `~/.vibefs/vibefs.pid` — PID file for daemon liveness check
-- `~/.vibefs/vibefs.log` — daemon log output (stdout/stderr redirect)
-
-### PID file liveness check
-- Read PID from file → `os.kill(pid, 0)` to check if process is alive
-- If PID file exists but process is dead → stale PID file, clean up and restart
-
-## File Format Support
-
-- **Phase 1**: Plain text files (text/plain)
-- **Future**: Markdown rendering, images, PDFs, syntax highlighting, etc.
-
-## Dependencies
-
-- `click` — CLI framework
-- `bottle` — Web framework
-- Everything else is Python stdlib (sqlite3, hashlib, os, etc.)
+- Nothing accessible by default — explicit `allow` with TTL required
+- Token entropy: 8 hex (files), 12 hex (dirs), 32 hex (owner)
+- Rate limiting: 60 req/min per IP (CF-Connecting-IP aware)
+- Path traversal: `realpath()` + prefix check, symlink validation
+- Anti-crawler: robots.txt, X-Robots-Tag, noindex, no-referrer
+- XSS: Escaped JSON/JS in templates
+- Owner auth: constant-time comparison, httponly samesite=Lax cookie
+- Large file DoS: >5MB served as download, max 10K files per dir share
+- Directory tree cached 30s to prevent scan DoS
 
 ## Project Structure
 
 ```
 vibefs/
-├── PLAN.md          # This file
-├── vibefs.py        # All core logic (single file)
-├── pyproject.toml   # Project metadata, dependencies & entry point
-├── uv.lock          # Lock file (auto-generated)
-└── README.md        # Usage documentation
+├── cli.py            # CLI commands (click)
+├── server.py         # Bottle routes, rate limiting, security headers
+├── db.py             # SQLite: authorizations, git_authorizations, dir_authorizations
+├── renderers.py      # Renderer classes: Code, Markdown, CSV, PDF, Media, SVG, Base
+├── templates.py      # Jinja2 env setup, render_template(), dual Pygments CSS
+├── templates/        # Jinja2 HTML templates
+│   ├── base.html
+│   ├── code.html
+│   ├── csv.html
+│   ├── dashboard.html
+│   ├── dir_browser.html
+│   ├── expired.html
+│   ├── git.html
+│   ├── markdown.html
+│   ├── media.html
+│   ├── owner_login.html
+│   └── verify.html
+├── config.py         # Config loading, owner key generation
+├── constants.py      # Token lengths, TTLs, limits, paths
+├── daemon.py         # PID management, daemon start/stop, cleanup timer
+├── tunnel.py         # Cloudflare Quick Tunnel integration
+├── utils.py          # walk_directory(), is_safe_subpath(), html escaping
+└── __init__.py
 ```
 
-## Packaging & Tooling
+## Dependencies
 
-Single-file core, but proper Python packaging practices:
-
-- **uv** as package manager (`uv init`, `uv add`, `uv run`)
-- **pyproject.toml** for metadata, dependencies, and CLI entry point
-- Entry point via `[project.scripts]`: `vibefs = "vibefs:cli"`
-- Install with `uv pip install -e .` or run directly with `uv run vibefs`
-- No `src/` layout — `vibefs.py` sits at project root, keeps it flat and simple
+- `bottle` — Web framework
+- `waitress` — Production WSGI server
+- `click` — CLI framework
+- `jinja2` — Template engine
+- `pygments` — Syntax highlighting
+- `markdown-it-py[linkify]` + `mdit-py-plugins` — Markdown rendering
+- Python stdlib: sqlite3, os, hashlib, hmac, time, mimetypes, csv, etc.
 
 ## Design Principles
 
-- **Portable**: Single Python file, minimal dependencies
-- **Proper packaging**: uv + pyproject.toml, installable as a real Python package
 - **Secure by default**: Nothing is accessible until explicitly allowed
 - **Ephemeral**: Authorizations expire automatically
-- **Agent-friendly**: CLI output is clean and parseable
+- **Agent-friendly**: CLI output is clean and parseable, `--json` on all commands
+- **Zero-config**: Auto-starts daemon, auto-generates owner key, sensible defaults
+- **Rich rendering**: Code, markdown, CSV, PDF, media — not just raw file serving
